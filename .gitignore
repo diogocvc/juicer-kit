@@ -1,5 +1,13 @@
 # OS
 .DS_Store
 
-# Local config
-.opencode/
+# OpenCode local (não versionar)
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
+.opencode/.gitignore
+.opencode/.DS_Store
+.opencode/cache/
+.opencode/sessions/
+.opencode/*.local.json

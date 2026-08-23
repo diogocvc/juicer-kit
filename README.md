@@ -84,7 +84,7 @@ cp -r ~/path/to/juicer-kit/commands ./
 
 ```bash
 # In your new project
-git submodule add https://github.com/your-username/juicer-kit.git .opencode
+git submodule add https://github.com/diogocvc/juicer-kit.git .opencode
 ```
 
 To update the kit in the future:
@@ -425,6 +425,10 @@ git submodule update --remote
 ### With Symlink
 
 If you use symlink, the kit is already automatically updated (point to the latest version).
+
+## 📚 Guia Completo
+
+Leia o [Guia Completo do Juicer Kit](docs/GUIDE.md) para instruções detalhadas sobre instalação, configuração, uso dos agentes, workflows, e boas práticas.
 
 ## 📚 Additional Resources
 
