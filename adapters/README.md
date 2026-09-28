@@ -34,7 +34,9 @@ A directory with an `adapter.py` exposing `class Adapter` is a valid
 adapter. Adding or overriding one never requires editing `bin/juicer`.
 
 See `docs/adapter-contract.md` for the Python contract
-(`capabilities`, `discover`, `sync`, `install`, `invoke`).
+(`capabilities`, `discover`, `sync`, `install`, `invoke`) and for the
+sync-safety rules (manifest, stale cleanup, `--dry-run`/`--check`/
+`--force`).
 
 ## Notes per adapter
 

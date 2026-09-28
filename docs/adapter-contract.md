@@ -147,6 +147,46 @@ Prohibited in every generated file: `role:`, `access:`, `tier:`,
 Workers without `access` default to `edit`; invalid `access`/`tier`
 values abort `sync` with exit 1.
 
+## Sync safety and the manifest
+
+Every adapter records what it generated in
+
+```text
+.juicer/runtime/manifests/<adapter-id>.json
+```
+
+```json
+{
+  "schema": 1,
+  "adapter": "opencode",
+  "updated_at": "...",
+  "files": {".opencode/agents/reviewer.md": "<sha256>"}
+}
+```
+
+Rules:
+
+1. Only paths recorded in the manifest may be deleted (stale cleanup).
+2. A recorded file whose disk hash no longer matches the manifest was
+   modified by the user: it is kept and reported as a conflict unless
+   `--force` is given.
+3. Files never recorded (user files, `AGENTS.md`, unknown paths) are
+   never touched.
+4. Current outputs are regenerated on every sync; if a user had edited
+   a current output, the overwrite is reported on stderr.
+5. `AGENTS.md` is project-owned (`manifest=False`): never tracked,
+   never deleted, never overwritten when present.
+
+CLI flags (both `sync` and `install`):
+
+| flag | behavior |
+|------|----------|
+| `--dry-run` | print the plan (`write`/`delete`/`keep`), change nothing, exit 0 |
+| `--check` | print the plan, change nothing; exit 1 if any action is pending |
+| `--force` | also delete user-modified stale files |
+
+`juicer sync all --check` is the CI-friendly drift gate.
+
 ## Python contract
 
 Adapters are Python modules loaded by `bin/juicer`:

@@ -17,7 +17,7 @@ WORKER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/")
 
 sys.path.insert(0, str(KIT / "adapters"))
-from _base import Ctx  # noqa: E402
+from _base import Ctx, sha256_file  # noqa: E402
 
 def fail(message):
     print(f"error: {message}", file=sys.stderr)
@@ -142,7 +142,125 @@ def show_capabilities(target):
         if key in info:
             print(f"  {key}: {_format(info[key])}")
 
-def sync(target, opencode_format=None):
+def _rel(path):
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+def manifest_path(adapter_id):
+    return ROOT / ".juicer" / "runtime" / "manifests" / f"{adapter_id}.json"
+
+def load_manifest(adapter_id):
+    path = manifest_path(adapter_id)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except ValueError:
+        return {}
+    return data.get("files", {}) if isinstance(data, dict) else {}
+
+def save_manifest(adapter_id, files):
+    if files == load_manifest(adapter_id):
+        return
+    path = manifest_path(adapter_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"schema": 1, "adapter": adapter_id, "updated_at": now(),
+               "files": dict(sorted(files.items()))}
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+
+def _prune_empty_dirs(path):
+    parent = path.parent
+    while parent != ROOT:
+        try:
+            parent.relative_to(ROOT)
+        except ValueError:
+            break
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
+
+def apply_manifest(adapter_id, changes, dry_run=False, check=False, force=False):
+    """Reconcile generated files against the adapter's manifest.
+
+    Safety rules: only files recorded in the manifest may be deleted;
+    a recorded file the user modified is kept (unless ``force``) and
+    reported as a conflict. Project-owned files (``manifest=False``,
+    e.g. AGENTS.md) and unmanaged files are never touched.
+    """
+    changes = [c for c in changes if c is not None]
+    current, writes = {}, []
+    for change in changes:
+        if change.action == "write":
+            writes.append(change)
+        if change.manifest and change.digest:
+            current[_rel(change.path)] = change.digest
+    manifest = load_manifest(adapter_id)
+    deletes, conflicts = [], []
+    for rel, digest in manifest.items():
+        if rel in current:
+            continue
+        path = ROOT / rel
+        if not path.exists():
+            continue  # already gone; drop from the manifest
+        if force or sha256_file(path) == digest:
+            deletes.append(rel)
+        else:
+            conflicts.append(rel)
+    if not (dry_run or check):
+        for rel in deletes:
+            (ROOT / rel).unlink()
+            _prune_empty_dirs(ROOT / rel)
+        new_manifest = dict(current)
+        for rel in conflicts:
+            new_manifest[rel] = manifest[rel]
+        save_manifest(adapter_id, new_manifest)
+    return {"writes": writes, "deletes": deletes, "conflicts": conflicts,
+            "current": set(current)}
+
+def _sync_one(adapter, ctx, dry_run, check, force, verb="synced", install=False):
+    manifest = load_manifest(adapter.id)
+    pre = {}
+    if not (dry_run or check):
+        pre = {rel: sha256_file(ROOT / rel)
+               for rel in manifest if (ROOT / rel).exists()}
+    method = adapter.install if install else adapter.sync
+    changes = _call(method, ctx, dry_run=dry_run or check)
+    info = apply_manifest(adapter.id, changes, dry_run=dry_run, check=check, force=force)
+    if not (dry_run or check):
+        info["regenerated"] = [rel for rel in pre
+                               if rel in info["current"]
+                               and pre[rel] != manifest.get(rel)]
+    return _report_sync(adapter.id, info, dry_run, check, force, verb=verb)
+
+def _report_sync(adapter_id, info, dry_run, check, force, verb="synced"):
+    writes, deletes, conflicts = info["writes"], info["deletes"], info["conflicts"]
+    if dry_run or check:
+        pending = len(writes) + len(deletes) + len(conflicts)
+        label = "check" if check else "plan"
+        if not pending:
+            print(f"sync {label}: {adapter_id} (up to date)")
+            return 0
+        print(f"sync {label}: {adapter_id} ({pending} pending)")
+        for change in writes:
+            print(f"  write {_rel(change.path)}")
+        for rel in deletes:
+            print(f"  delete {rel} (stale)")
+        for rel in conflicts:
+            print(f"  keep {rel} (modified since generation; use --force to remove)")
+        return pending
+    print(f"{verb}: {adapter_id} ({len(writes)} written, {len(deletes)} stale removed)")
+    for rel in info.get("regenerated", ()):
+        print(f"regenerated user-modified file: {rel}", file=sys.stderr)
+    for rel in conflicts:
+        print(f"conflict: {rel} (modified since generation; use --force to remove)",
+              file=sys.stderr)
+    return 0
+
+def sync(target, opencode_format=None, dry_run=False, check=False, force=False):
     ensure_runtime()
     adapters = load_adapters()
     if target == "all":
@@ -154,10 +272,11 @@ def sync(target, opencode_format=None):
     else:
         fail(f"Unknown adapter: {target} (available: {', '.join(sorted(adapters)) or 'none'})")
     ctx = make_ctx(**({"opencode_format": opencode_format} if opencode_format else {}))
+    pending = 0
     for adapter in selected:
-        changes = _call(adapter.sync, ctx, dry_run=False)
-        written = sum(1 for c in changes if c is not None and c.action == "write")
-        print(f"synced: {adapter.id} ({written} written)")
+        pending += _sync_one(adapter, ctx, dry_run, check, force)
+    if check and pending:
+        sys.exit(1)
 
 def _call(method, *args, **kwargs):
     try:
@@ -253,10 +372,12 @@ def cmd_worker(args):
 def cmd_install(args):
     ensure_runtime()
     adapter = get_adapter(args.target)
-    ctx = make_ctx(**({"opencode_format": args.opencode_format} if getattr(args, "opencode_format", None) else {}))
-    changes = _call(adapter.install, ctx, dry_run=False)
-    written = sum(1 for c in changes if c is not None and c.action == "write")
-    print(f"installed: {adapter.id} ({written} written)")
+    options = {"opencode_format": args.opencode_format} if args.opencode_format else {}
+    ctx = make_ctx(**options)
+    pending = _sync_one(adapter, ctx, args.dry_run, args.check, args.force,
+                        verb="installed", install=True)
+    if args.check and pending:
+        sys.exit(1)
 
 def cmd_invoke(args):
     ensure_runtime()
@@ -285,10 +406,17 @@ def main():
     sy = sub.add_parser("sync")
     sy.add_argument("target")
     sy.add_argument("--opencode-format", choices=["legacy", "v2"], default=None)
-    sy.set_defaults(fn=lambda a: sync(a.target, opencode_format=a.opencode_format))
+    sy.add_argument("--dry-run", action="store_true")
+    sy.add_argument("--check", action="store_true")
+    sy.add_argument("--force", action="store_true")
+    sy.set_defaults(fn=lambda a: sync(a.target, opencode_format=a.opencode_format,
+                                      dry_run=a.dry_run, check=a.check, force=a.force))
     ins = sub.add_parser("install")
     ins.add_argument("target")
     ins.add_argument("--opencode-format", choices=["legacy", "v2"], default=None)
+    ins.add_argument("--dry-run", action="store_true")
+    ins.add_argument("--check", action="store_true")
+    ins.add_argument("--force", action="store_true")
     ins.set_defaults(fn=cmd_install)
     inv = sub.add_parser("invoke")
     inv.add_argument("target")

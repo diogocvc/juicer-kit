@@ -45,6 +45,8 @@ class Change:
     path: Path
     action: str  # "write" | "delete" | "skip"
     reason: str = ""
+    digest: str = ""       # sha256 of the resulting content
+    manifest: bool = True  # False => project-owned (e.g. AGENTS.md)
 
 
 @dataclass
@@ -140,14 +142,22 @@ def render_agent(frontmatter, worker, canonical="agents"):
     )
 
 
-def write_generated(path, content, dry_run=False):
+def sha256_file(path):
+    """Hex sha256 of a file's bytes."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def write_generated(path, content, dry_run=False, manifest=True):
     """Write a generated file unless the existing content is identical."""
-    if path.exists() and path.read_text() == content:
-        return Change(path=path, action="skip", reason="unchanged")
+    data = content.encode("utf-8")
+    digest = hashlib.sha256(data).hexdigest()
+    if path.exists() and path.read_bytes() == data:
+        return Change(path=path, action="skip", reason="unchanged",
+                      digest=digest, manifest=manifest)
     if not dry_run:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-    return Change(path=path, action="write")
+        path.write_bytes(data)
+    return Change(path=path, action="write", digest=digest, manifest=manifest)
 
 
 def resolve_source(ctx, relative):
@@ -169,11 +179,17 @@ def iter_workers(ctx):
 
 
 def ensure_entrypoint(ctx, dry_run=False):
-    """Make sure AGENTS.md exists; copy it from the kit when missing."""
+    """Make sure AGENTS.md exists; copy it from the kit when missing.
+
+    The entrypoint is project-owned: it is never tracked in the sync
+    manifest and therefore never deleted as a stale generated file.
+    """
     target = ctx.root / "AGENTS.md"
     if target.exists():
-        return Change(path=target, action="skip", reason="exists")
-    return write_generated(target, (ctx.kit / "AGENTS.md").read_text(), dry_run=dry_run)
+        return Change(path=target, action="skip", reason="exists",
+                      digest=sha256_file(target), manifest=False)
+    return write_generated(target, (ctx.kit / "AGENTS.md").read_text(),
+                           dry_run=dry_run, manifest=False)
 
 
 def mirror_skills(ctx, destination, dry_run=False):
@@ -187,13 +203,16 @@ def mirror_skills(ctx, destination, dry_run=False):
             continue
         rel = src.relative_to(source)
         dst = destination / rel
-        if dst.exists() and dst.read_bytes() == src.read_bytes():
-            changes.append(Change(path=dst, action="skip", reason="unchanged"))
+        data = src.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if dst.exists() and dst.read_bytes() == data:
+            changes.append(Change(path=dst, action="skip", reason="unchanged",
+                                  digest=digest))
             continue
         if not dry_run:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
-        changes.append(Change(path=dst, action="write"))
+        changes.append(Change(path=dst, action="write", digest=digest))
     return changes
 
 
