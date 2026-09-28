@@ -5,11 +5,12 @@ Use this file to make a fresh agent session immediately useful.
 ## Current state
 
 - Mission: post-audit correction plan, Juicer Kit v2.2.0 → 2.3.0 —
-  **complete** (3 grouped phases, one commit each). Kit repo session only;
+  **complete** (3 grouped phases, one commit each). Follow-up docs pass
+  and full pt-BR translation also done. Kit repo session only;
   `.juicer/mission.md` stays the shipped template ("No active mission").
-- Unit: FASE 3 (docs + release 2.3.0) done in this commit; awaiting user
-  decision on tagging/pushing.
-- Status: 4 commits on main after `d7695a8` (v2.2.0), all tests green,
+- Unit: pt-BR guide translation done in this commit; awaiting user
+  decision on pushing.
+- Status: 5 commits on main after `d7695a8` (v2.2.0), all tests green,
   version 2.3.0 everywhere (tag `v2.3.0` pushed, CI success).
 
 ## What was completed
@@ -31,11 +32,16 @@ Use this file to make a fresh agent session immediately useful.
   version 2.3.0 in `VERSION`, `kit.yaml`, `.juicer/state.json`,
   `bin/juicer` (docstring, two `kit_version` defaults, init banner),
   `test_version_files` pin.
-- DOCS (this commit) — README/GUIDE consistency pass vs 2.3.0:
+- DOCS (commit `a76f816`) — README/GUIDE consistency pass vs 2.3.0:
   README skills-mirror claim (only Claude mirrors), Codex in the
   architecture diagram, non-exhaustive worker list, §13 flows moved
-  human approval before devops, §5 and §16 trust notes in both guides,
-  pt-BR translation debt recorded (decisions + this file).
+  human approval before devops, §5 and §16 trust notes in both guides.
+- TRANSLATION (this commit) — `docs/GUIDE.pt-BR.md` fully translated
+  to pt-BR (all 21 sections, ~490 lines); ASCII diagrams and command
+  blocks byte-identical to EN; terminology: worker/adapter/harness/
+  skill/checkpoint/ship/gate/workflow invariable, mission→missão,
+  approval→aprovação, state→estado, unit→unidade; deferred-decision
+  entry removed from `decisions.md` per its own Impact clause.
 
 ## What remains
 
@@ -77,16 +83,13 @@ Use this file to make a fresh agent session immediately useful.
   templates. Pre-existing pattern; needs a design decision before changing.
 - Harness mirrors are gitignored, so CI cannot detect a stale local mirror;
   the write-then-check job only proves determinism.
-- `docs/GUIDE.pt-BR.md` body is ~90% English (headers and 2.3.0-era
-  additions translated); needs a dedicated translation unit
-  (decision 2026-09-28 — pt-BR guide translation deferred).
 - V2 OpenCode `permissions:` is parsed but not applied upstream (#50598);
   re-check when bumping the default.
 
 ## Next action
 
-- Report FASE 3 results to the user and stop. Only proceed with
-  tag/push/release if the user explicitly approves it.
+- Report translation results to the user and stop. Only proceed with
+  push if the user explicitly approves it.
 
 ## Verification evidence
 

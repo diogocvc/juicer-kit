@@ -4,9 +4,9 @@
 
 ## 1. Introdução
 
-Juicer Kit v2.3 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
+Juicer Kit v2.3 é um sistema de workflow portátil para desenvolvimento de software AI-native. Ele separa o estado de workflow persistente, os contratos de workers, skills reutilizáveis e adapters específicos de cada harness.
 
-O princípio central é: **o usuário é dono da mission; os agentes executam o trabalho dentro dela.**
+O princípio central é: **o usuário é dono da missão; os agentes executam o trabalho dentro dela.**
 
 ## 2. Arquitetura
 
@@ -33,9 +33,9 @@ O princípio central é: **o usuário é dono da mission; os agentes executam o 
                        MODEL(S)
 ```
 
-O core portátil é `.juicer/`, `agents/`, `.agents/skills/`, `AGENTS.md`, and the workflow definitions. Adapters translate this core into harness-specific execution mechanisms.
+O core portátil é `.juicer/`, `agents/`, `.agents/skills/`, `AGENTS.md` e as definições de workflow. Adapters traduzem esse core em mecanismos de execução específicos de cada harness.
 
-Adding a future tool such as Gemini CLI should normally mean adding `adapters/gemini-cli/` without changing the core workflow.
+Adicionar uma futura ferramenta como o Gemini CLI deve normalmente significar adicionar `adapters/gemini-cli/`, sem alterar o workflow core.
 
 ## 3. Estrutura do repositório
 
@@ -61,18 +61,18 @@ juicer-kit/
 └── tests/
 ```
 
-`.juicer/` is persistent workflow state. `agents/` contains canonical worker contracts. `.agents/skills/` contains portable skills. `adapters/` contains harness integrations. `AGENTS.md` is the universal project-level agent entrypoint. `bin/juicer` manages deterministic state.
+`.juicer/` é o estado de workflow persistente. `agents/` contém os contratos canônicos de workers. `.agents/skills/` contém as skills portáveis. `adapters/` contém as integrações com harnesses. `AGENTS.md` é o entrypoint universal de agentes do projeto. `bin/juicer` gerencia o estado de forma determinística.
 
 ## 4. Pré-requisitos
 
 Obrigatório:
 
-- Git project
+- projeto Git
 - terminal
-- an AI development harness capable of reading project instructions and/or executing prompts
-- Python 3 for the CLI
+- um harness de desenvolvimento AI capaz de ler instruções do projeto e/ou executar prompts
+- Python 3 para o CLI
 
-A arquitetura foi desenhada para suportar Codex, OpenCode, Claude Code, Cursor, Zed, and future tools.
+A arquitetura foi desenhada para suportar Codex, OpenCode, Claude Code, Cursor, Zed e ferramentas futuras.
 
 Modelos não são definidos nos contratos dos workers. A seleção de modelo/provider pertence à camada do harness.
 
@@ -84,33 +84,33 @@ Modelos não são definidos nos contratos dos workers. A seleção de modelo/pro
 ./bin/juicer adapters
 ```
 
-The initializer creates the `.juicer/` state and synchronizes supported adapters.
+O inicializador cria o estado `.juicer/` e sincroniza os adapters suportados.
 
 Adapters do diretório `adapters/` do projeto são Python executável e não
 são carregados por padrão; use `--trust-project-adapters` (ou
 `JUICER_TRUST_PROJECT_ADAPTERS=1`) — veja a seção 19.
 
-The canonical portable skill tree is `.agents/skills/`.
+A árvore canônica de skills portáveis é `.agents/skills/`.
 
-## 6. Modelo de Mission
+## 6. Modelo de missão
 
-A mission contains:
+Uma missão contém:
 
-- objective;
-- success criteria;
-- constraints;
-- scope;
-- decisions;
-- current execution unit;
-- approval state.
+- objetivo;
+- critérios de sucesso;
+- restrições;
+- escopo;
+- decisões;
+- unidade de execução atual;
+- estado de aprovação.
 
-Lifecycle:
+Ciclo de vida:
 
 ```text
 idle
   ↓
 planning
-  ↓ human approval
+  ↓ aprovação humana
 ready
   ↓
 executing
@@ -121,25 +121,25 @@ executing
        done
 ```
 
-A chat session is temporary. Mission state is persistent. A fresh session should read `.juicer/mission.md`, `.juicer/plan.md`, and `.juicer/handoff.md`.
+Uma sessão de chat é temporária. O estado da missão é persistente. Uma sessão nova deve ler `.juicer/mission.md`, `.juicer/plan.md` e `.juicer/handoff.md`.
 
 ## 7. Controle humano e gates de aprovação
 
-Juicer uses four explicit gates:
+O Juicer usa quatro gates explícitos:
 
-1. **Planning** — implementation starts only after plan approval.
-2. **Scope** — every unit has explicit scope and acceptance criteria.
-3. **Verification** — completion requires evidence.
-4. **Ship** — production-impacting actions require explicit human approval.
+1. **Planejamento** — a implementação só começa após a aprovação do plano.
+2. **Escopo** — cada unidade tem escopo e critérios de aceitação explícitos.
+3. **Verificação** — conclusão exige evidências.
+4. **Ship** — ações com impacto em produção exigem aprovação humana explícita.
 
-Commands:
+Comandos:
 
 ```bash
 ./bin/juicer approve
 ./bin/juicer ship-approve
 ```
 
-Agents must never infer approval.
+Agentes nunca devem inferir aprovação.
 
 A aprovação fica no estado: `./bin/juicer status` mostra `approved` e
 `ship_approved`. O CLI não executa nenhuma ação de produção por si, então
@@ -149,32 +149,32 @@ for `false`.
 
 ## 8. Workers
 
-| Worker | Responsibility |
+| Worker | Responsabilidade |
 |---|---|
-| `finder` | Repository reconnaissance |
-| `analyst` | Existing behavior, dependencies and constraints |
-| `researcher` | External technical research |
-| `architect` | Solution architecture |
-| `planner` | Atomic implementation plan |
-| `coder` | New implementation |
-| `editor` | Safe existing-code modification |
-| `fixer` | Narrow known bug correction |
-| `refactorer` | Structural refactoring |
-| `reviewer` | Code review |
-| `tester` | Tests and verification |
-| `debugger` | Root-cause investigation |
-| `security` | Segurança audit |
-| `documenter` | Technical documentation |
-| `devops` | Infrastructure and release |
-| `optimizer` | Evidence-based performance work |
+| `finder` | Reconhecimento do repositório |
+| `analyst` | Comportamento existente, dependências e restrições |
+| `researcher` | Pesquisa técnica externa |
+| `architect` | Arquitetura da solução |
+| `planner` | Plano de implementação atômico |
+| `coder` | Nova implementação |
+| `editor` | Modificação segura de código existente |
+| `fixer` | Correção estreita de bug conhecido |
+| `refactorer` | Refatoração estrutural |
+| `reviewer` | Revisão de código |
+| `tester` | Testes e verificação |
+| `debugger` | Investigação de causa raiz |
+| `security` | Auditoria de segurança |
+| `documenter` | Documentação técnica |
+| `devops` | Infraestrutura e release |
+| `optimizer` | Trabalho de performance baseado em evidências |
 
-Workers are first-class and can be invoked directly. Native orchestration is optional.
+Workers são de primeira classe e podem ser invocados diretamente. A orquestração nativa é opcional.
 
 ## 9. Skills
 
-Canonical skills live under `.agents/skills/`.
+As skills canônicas ficam em `.agents/skills/`.
 
-v2.3 includes:
+A v2.3 inclui:
 
 ```text
 mission-control
@@ -186,13 +186,13 @@ context-management
 ship
 ```
 
-Skills are reusable playbooks and should remain harness-agnostic.
+Skills são playbooks reutilizáveis e devem permanecer agnósticas de harness.
 
 ## 10. Contrato de Adapter
 
-The contract is documented in `docs/adapter-contract.md`.
+O contrato está documentado em `docs/adapter-contract.md`.
 
-Conceptually:
+Conceitualmente:
 
 ```text
 discover()
@@ -202,7 +202,7 @@ invoke(worker)
 capabilities()
 ```
 
-Capabilities may include:
+As capabilities podem incluir:
 
 ```yaml
 skills: true
@@ -212,31 +212,31 @@ human_approval: true
 persistent_context: true
 ```
 
-Capabilities describe the harness; they do not redefine the Juicer workflow.
+Capabilities descrevem o harness; elas não redefinem o workflow do Juicer.
 
-If native subagents are unavailable, an adapter should fall back to direct worker execution rather than breaking the core.
+Se subagentes nativos não estiverem disponíveis, um adapter deve recorrer à execução direta dos workers em vez de quebrar o core.
 
 ## 11. Adapters atuais
 
 ### Codex
 
-Uses `AGENTS.md` and `.agents/skills/`, with native agent/subagent capabilities where available.
+Usa `AGENTS.md` e `.agents/skills/`, com capacidades nativas de agent/subagent onde disponíveis.
 
 ### OpenCode
 
-Can use native agents and skills. They are execution mechanisms, not the source of truth.
+Pode usar agentes e skills nativos. Eles são mecanismos de execução, não a fonte de verdade.
 
 ### Claude Code
 
-Can use native subagents and skills. Persistent Juicer state remains in `.juicer/`.
+Pode usar subagentes e skills nativos. O estado persistente do Juicer permanece em `.juicer/`.
 
 ### Cursor
 
-Can consume portable skills and use native agent mechanisms.
+Pode consumir skills portáveis e usar mecanismos nativos de agentes.
 
 ### Zed
 
-Can use its native agent environment or an external ACP agent. Juicer state remains independent of Zed.
+Pode usar seu ambiente nativo de agentes ou um agente ACP externo. O estado do Juicer permanece independente do Zed.
 
 ## 12. CLI
 
@@ -260,7 +260,7 @@ Can use its native agent environment or an external ACP agent. Juicer state rema
 ./bin/juicer invoke codex reviewer --unit UNIT-001
 ```
 
-The CLI does not call an LLM. It manages deterministic state while the active harness executes AI work. Gate commands validate the workflow state first and exit 1 on an illegal transition; `juicer status` lists the commands available in the current state.
+O CLI não chama um LLM. Ele gerencia estado de forma determinística enquanto o harness ativo executa o trabalho de IA. Os comandos de gate validam o estado do workflow primeiro e saem com código 1 em uma transição ilegal; `juicer status` lista os comandos disponíveis no estado atual.
 
 ## 13. Workflows principais
 
@@ -269,24 +269,24 @@ The CLI does not call an LLM. It manages deterministic state while the active ha
 ```text
 finder → analyst → architect → planner
                  ↓
-          HUMAN APPROVAL
+         APROVAÇÃO HUMANA
                  ↓
         coder/editor → reviewer → tester → documenter
                  ↓
-        HUMAN SHIP APPROVAL
+        APROVAÇÃO HUMANA DE SHIP
                  ↓
              devops
 ```
 
-Not every feature needs every worker.
+Nem toda feature precisa de todos os workers.
 
-### Bug fix
+### Correção de bug
 
 ```text
 finder → debugger → fixer → reviewer → tester
 ```
 
-### Refactor
+### Refatoração
 
 ```text
 finder → analyst → refactorer → reviewer → tester
@@ -295,22 +295,22 @@ finder → analyst → refactorer → reviewer → tester
 ### Release
 
 ```text
-reviewer → tester → security (when applicable) → HUMAN APPROVAL → devops
+reviewer → tester → security (quando aplicável) → APROVAÇÃO HUMANA → devops
 ```
 
-Workflows are control structures, not mandatory autonomous swarms.
+Workflows são estruturas de controle, não enxames autônomos obrigatórios.
 
 ## 14. Múltiplos harnesses
 
-A mission can start in OpenCode:
+Uma missão pode começar no OpenCode:
 
 ```text
 finder → architect → planner
 ```
 
-and continue in Codex later.
+e continuar no Codex depois.
 
-The new session reads:
+A nova sessão lê:
 
 ```text
 AGENTS.md
@@ -318,10 +318,10 @@ AGENTS.md
 .agents/skills/
 ```
 
-The invariant is:
+O invariante é:
 
 ```text
-mesma mission
+mesma missão
 mesmo plano
 mesmos critérios de aceitação
 mesmos contratos de workers
@@ -332,71 +332,71 @@ Harness e modelo são camadas de execução substituíveis.
 
 ## 15. Contexto e otimização de tokens
 
-Prefer:
+Prefira:
 
 ```text
-mission
+missão
 +
-active unit
+unidade ativa
 +
-relevant code
+código relevante
 +
-relevant skill
+skill relevante
 +
-verification
+verificação
 ```
 
-Avoid entire repository dumps, unrelated documentation, repeated explanations, loading every worker, or executing every available agent.
+Evite dumps do repositório inteiro, documentação não relacionada, explicações repetidas, carregar todos os workers ou executar todos os agentes disponíveis.
 
-Before ending a long session, update `.juicer/handoff.md` with what changed, what was verified, what remains, blockers, and next action.
+Antes de encerrar uma sessão longa, atualize `.juicer/handoff.md` com o que mudou, o que foi verificado, o que resta, bloqueios e a próxima ação.
 
-Put reusable discoveries in `.juicer/learnings.md`.
+Coloque descobertas reutilizáveis em `.juicer/learnings.md`.
 
 ## 16. Segurança
 
-Use `security` for authentication, authorization, payments, personal data, secrets, public APIs, external integrations, infrastructure, and permission changes.
+Use `security` para autenticação, autorização, pagamentos, dados pessoais, segredos, APIs públicas, integrações externas, infraestrutura e mudanças de permissão.
 
-A useful security report contains:
+Um relatório de segurança útil contém:
 
 ```text
-Finding
-Severity
-Evidence
-Impact
-Remediation
+Descoberta
+Severidade
+Evidência
+Impacto
+Remediação
 ```
 
-Never commit API keys, private keys, passwords, tokens or production credentials.
+Nunca faça commit de chaves de API, chaves privadas, senhas, tokens ou credenciais de produção.
 
-Destructive and production-impacting actions remain behind explicit human approval.
+Ações destrutivas e com impacto em produção permanecem atrás de aprovação humana explícita.
 
 Adapters de projeto são Python executável e não confiados por padrão
 (veja a seção 19); carregue-os apenas em repositórios confiáveis.
 
-## 17. Troubleshooting
+## 17. Solução de problemas
 
-### Worker not found
+### Worker não encontrado
 
 ```bash
 ls agents/
 ./bin/juicer worker reviewer
 ```
 
-### Skills not discovered
+### Skills não descobertas
 
 ```bash
 ls .agents/skills/
 ```
 
-Then inspect the relevant `SKILL.md` and sync the appropriate adapter.
+Depois, inspecione o `SKILL.md` relevante e sincronize o adapter apropriado.
 
-### Harness delegation breaks
+### Delegação do harness quebra
 
-Do not move workflow state into the harness. Check `.juicer/`, `agents/`, and `.agents/skills/`, then inspect the adapter.
+Não mova o estado do workflow para dentro do harness. Verifique `.juicer/`, `agents/` e `.agents/skills/`, e então inspecione o adapter.
 
-### Agent has no context
+### Agente sem contexto
 
-Read:
+Leia:
 
 ```text
 .juicer/mission.md
@@ -404,61 +404,61 @@ Read:
 .juicer/handoff.md
 ```
 
-### Mission is blocked
+### Missão bloqueada
 
 ```bash
 ./bin/juicer status
 ```
 
-Inspect `.juicer/plan.md` and resolve the gate. Do not force a status change.
+Inspecione `.juicer/plan.md` e resolva o gate. Não force uma mudança de estado.
 
-### Tests pass but the task is incomplete
+### Testes passam, mas a tarefa está incompleta
 
-Tests are evidence, not the definition of completion. Compare the implementation with the unit's acceptance criteria.
+Testes são evidência, não a definição de conclusão. Compare a implementação com os critérios de aceitação da unidade.
 
 ## 18. Exemplos práticos
 
-### New feature
+### Nova feature
 
 ```bash
 ./bin/juicer mission "Add Stripe subscriptions"
 ```
 
-Use `finder`, `analyst`, `architect`, and `planner`. Review `.juicer/plan.md`, approve it, and execute units with the appropriate workers.
+Use `finder`, `analyst`, `architect` e `planner`. Revise `.juicer/plan.md`, aprove-o e execute as unidades com os workers apropriados.
 
-### Direct worker
+### Worker direto
 
-> Run the `reviewer` worker against the current diff. Do not modify files.
+> Execute o worker `reviewer` sobre o diff atual. Não modifique arquivos.
 
-No orchestrator is required.
+Nenhum orquestrador é necessário.
 
-### Switch harness
+### Trocar de harness
 
-Start in OpenCode, then open the same repository in Codex. Read `AGENTS.md` and `.juicer/`; continue from persisted state.
+Comece no OpenCode e depois abra o mesmo repositório no Codex. Leia `AGENTS.md` e `.juicer/`; continue do estado persistido.
 
 ### Performance
 
-Use `optimizer`:
+Use o `optimizer`:
 
 ```text
 baseline → profile → bottleneck → change → benchmark → compare
 ```
 
-Never optimize only from intuition.
+Nunca otimize apenas por intuição.
 
 ## 19. Estendendo o Juicer Kit
 
-### Add a worker
+### Adicionar um worker
 
-Create `agents/my-worker.md` with objective, operating contract, scope and output.
+Crie `agents/my-worker.md` com objetivo, contrato de operação, escopo e saída.
 
-### Add a skill
+### Adicionar uma skill
 
-Create `.agents/skills/my-skill/SKILL.md`. Keep it portable.
+Crie `.agents/skills/my-skill/SKILL.md`. Mantenha-a portável.
 
-### Add an adapter
+### Adicionar um adapter
 
-Create:
+Crie:
 
 ```text
 adapters/my-harness/
@@ -467,24 +467,24 @@ adapters/my-harness/
 └── README.md
 ```
 
-Implement the adapter contract.
+Implemente o contrato de adapter.
 
 Adapters de projeto são Python executável e **não são carregados por
 padrão**. Use `--trust-project-adapters` (ou defina
 `JUICER_TRUST_PROJECT_ADAPTERS=1`) em `juicer sync`/`adapters`/etc. para
 carregá-los — veja a seção `Trust` de `docs/adapter-contract.md`.
 
-### Add a workflow
+### Adicionar um workflow
 
-Create `.juicer/workflows/my-workflow.md`. Workflows should describe process, not vendor-specific commands.
+Crie `.juicer/workflows/my-workflow.md`. Workflows devem descrever processo, não comandos específicos de fornecedor.
 
-Preferred dependency direction:
+Direção de dependência preferida:
 
 ```text
 core → adapter contract → adapter → harness
 ```
 
-not:
+e não:
 
 ```text
 core → OpenCode
@@ -494,21 +494,21 @@ core → Cursor
 
 ## 20. Migração da v1
 
-v2 replaces the previous OpenCode-centered architecture.
+A v2 substitui a arquitetura anterior centrada no OpenCode.
 
-1. Back up the project.
-2. Install v2.3.
-3. Convert active backlog items into `.juicer/plan.md`.
-4. Move durable decisions into `.juicer/decisions.md`.
-5. Move reusable knowledge into `.juicer/learnings.md`.
-6. Run `./bin/juicer init`.
-7. Sync the current harness.
-8. Test one direct worker.
-9. Test one complete workflow.
-10. Test resuming from a fresh session.
-11. Remove v1 only after verification.
+1. Faça backup do projeto.
+2. Instale a v2.3.
+3. Converta itens ativos do backlog em `.juicer/plan.md`.
+4. Mova decisões duráveis para `.juicer/decisions.md`.
+5. Mova conhecimento reutilizável para `.juicer/learnings.md`.
+6. Execute `./bin/juicer init`.
+7. Sincronize o harness atual.
+8. Teste um worker direto.
+9. Teste um workflow completo.
+10. Teste o retomar de uma sessão nova.
+11. Remova a v1 apenas após a verificação.
 
-The v1 backlog is not the new source of truth. `.juicer/` is.
+O backlog da v1 não é a nova fonte de verdade. `.juicer/` é.
 
 ## 21. Regras de contribuição
 
@@ -523,7 +523,7 @@ The v1 backlog is not the new source of truth. `.juicer/` is.
 9. O contexto permanece pequeno e intencional.
 10. Novas ferramentas normalmente exigem um novo adapter, não uma nova arquitetura de workflow.
 
-## Final mental model
+## Modelo mental final
 
 ```text
                   HUMAN
