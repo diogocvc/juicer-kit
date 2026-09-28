@@ -29,22 +29,50 @@ These are accelerators, not dependencies.
 
 ## 3. State machine
 
+`bin/juicer` enforces every gate command against this table before writing
+state. An illegal transition exits 1 with `Cannot <command> from status=<state>`.
+
 ```text
 idle
-  ↓
+  ↓ mission
 planning
-  ↓ approval
+  ↓ approve
 ready
-  ↓
-executing
-  ├── checkpoint → executing
-  ├── blocker → blocked
-  └── verification → ready/done
-                         ↓
-                      ship approval
-                         ↓
-                        done
+  ↓ start
+executing ── checkpoint blocked ──→ blocked
+    │ ↑                              │
+    │ └────── checkpoint executing ←─┘
+    │ (repeat while units remain)
+    ├─ checkpoint ready → ready ──┐
+    └─ checkpoint done → ready    │  (current_unit cleared on ready/done)
+                                  ↓
+                    finish → done → ship-approve
 ```
+
+Transition table (source states accepted per command):
+
+| Command | From | To |
+|---|---|---|
+| `mission` | idle, planning, ready, blocked, done | planning |
+| `approve` | planning, blocked, ready | ready |
+| `start` | ready, blocked (requires `approved`) | executing |
+| `checkpoint executing` | executing, blocked | executing |
+| `checkpoint blocked` | executing, blocked | blocked |
+| `checkpoint ready` | executing, blocked, ready | ready |
+| `checkpoint done` | ready | done |
+| `finish` | ready, done | done |
+| `ship-approve` | ready, done | — (sets `ship_approved`) |
+
+Rules:
+
+- `start` checks the approval gate first, so an unapproved attempt always
+  fails with `Blocked: approve the plan before starting work.`
+- Only one unit is active at a time: `start` is rejected while `executing`.
+- `mission` is rejected while `executing`; a new mission resets
+  `approved`, `ship_approved` and `current_unit`.
+- `current_unit` is cleared by `checkpoint ready`/`checkpoint done` and
+  kept by `checkpoint blocked`.
+- `status` prints the commands available in the current state.
 
 ## 4. Why this fixes the v1 problem
 

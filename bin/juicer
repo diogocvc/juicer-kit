@@ -57,6 +57,43 @@ def copy_missing(src, dst):
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
 
+# --- State machine ---------------------------------------------------------
+# Every gate command validates its source state before transitioning.
+# See docs/architecture.md §3 for the diagram.
+
+MISSION_FROM = ("idle", "planning", "ready", "blocked", "done")
+APPROVE_FROM = ("planning", "blocked", "ready")
+START_FROM = ("ready", "blocked")
+CHECKPOINT_RULES = {
+    "executing": ("executing", "blocked"),
+    "blocked": ("executing", "blocked"),
+    "ready": ("executing", "blocked", "ready"),
+    "done": ("ready",),
+}
+FINISH_FROM = ("ready", "done")
+SHIP_FROM = ("ready", "done")
+
+def require_state(action, status, allowed):
+    if status not in allowed:
+        fail(f"Cannot {action} from status={status} (allowed: {', '.join(allowed)})")
+
+def available_commands(status):
+    commands = []
+    if status in MISSION_FROM:
+        commands.append("mission")
+    if status in APPROVE_FROM:
+        commands.append("approve")
+    if status in START_FROM:
+        commands.append("start <unit>")
+    if any(status in sources for sources in CHECKPOINT_RULES.values()):
+        commands.append("checkpoint <status>")
+    if status in FINISH_FROM:
+        commands.append("finish")
+    if status in SHIP_FROM:
+        commands.append("ship-approve")
+    return commands
+
+
 def ensure_project_gitignore():
     path = ROOT / ".gitignore"
     existing = path.read_text().splitlines() if path.exists() else []
@@ -300,6 +337,9 @@ def cmd_status(_):
     ensure_runtime()
     s = read_state()
     print(json.dumps(s, indent=2))
+    commands = available_commands(s.get("status", "idle"))
+    if commands:
+        print("\navailable: " + ", ".join(commands))
     if MISSION.exists():
         print("\n--- mission ---")
         print(MISSION.read_text()[:3000])
@@ -307,6 +347,7 @@ def cmd_status(_):
 def cmd_mission(args):
     ensure_runtime()
     state = read_state()
+    require_state("start a new mission", state.get("status"), MISSION_FROM)
     state.update({"status":"planning","mission_id":datetime.now().strftime("%Y%m%d-%H%M%S"),
                   "current_unit":None,"approved":False,"ship_approved":False})
     write_state(state)
@@ -324,8 +365,7 @@ def cmd_mission(args):
 def cmd_approve(_):
     ensure_runtime()
     state = read_state()
-    if state.get("status") not in ("planning","blocked","ready"):
-        fail(f"Cannot approve from status={state.get('status')}")
+    require_state("approve", state.get("status"), APPROVE_FROM)
     state.update({"status":"ready","approved":True})
     write_state(state)
     print("Mission plan approved. Implementation may proceed.")
@@ -335,6 +375,7 @@ def cmd_start(args):
     state = read_state()
     if not state.get("approved"):
         fail("Blocked: approve the plan before starting work.")
+    require_state("start", state.get("status"), START_FROM)
     state.update({"status":"executing","current_unit":args.unit})
     write_state(state)
     print(f"Active unit: {args.unit}")
@@ -342,13 +383,18 @@ def cmd_start(args):
 def cmd_checkpoint(args):
     ensure_runtime()
     state = read_state()
+    require_state(f"checkpoint {args.status}", state.get("status"),
+                  CHECKPOINT_RULES[args.status])
     state["status"] = args.status
+    if args.status in ("ready", "done"):
+        state["current_unit"] = None
     write_state(state)
     print(f"Checkpoint saved: {args.status}")
 
 def cmd_ship_approve(_):
     ensure_runtime()
     state = read_state()
+    require_state("ship-approve", state.get("status"), SHIP_FROM)
     state["ship_approved"] = True
     write_state(state)
     print("Production-impacting actions are approved.")
@@ -389,6 +435,7 @@ def cmd_invoke(args):
 def cmd_finish(_):
     ensure_runtime()
     state = read_state()
+    require_state("finish", state.get("status"), FINISH_FROM)
     state.update({"status":"done","current_unit":None})
     write_state(state)
     print("Mission marked done.")
