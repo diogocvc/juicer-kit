@@ -147,3 +147,29 @@ def test_generated_files_carry_provenance_marker(tmp_path):
     assert codex.startswith("# juicer-kit: generated from agents/reviewer.md sha256:")
     cursor = (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text()
     assert "sha256:" in cursor
+    claude = (tmp_path / ".claude" / "agents" / "reviewer.md").read_text()
+    assert "<!-- juicer-kit: generated from agents/reviewer.md sha256:" in claude
+
+
+WORKER_CONTRACT_LINES = [
+    "1. Read `.juicer/mission.md`, `.juicer/plan.md` and `.juicer/handoff.md` before acting.",
+    "2. Work only within the active unit scope.",
+    "3. Do not silently expand scope.",
+    "4. Prefer evidence over assumptions.",
+    "5. Keep context narrow: inspect only relevant files.",
+    "6. Do not declare completion without verification evidence.",
+    "7. Record durable findings in `.juicer/handoff.md` or `.juicer/learnings.md`.",
+    "8. Preserve human gates. Never treat a missing approval as implicit approval.",
+]
+OUTPUT_HEADINGS = ["### Result", "### Evidence", "### Risks", "### Next action"]
+
+
+def test_workers_share_operating_contract():
+    workers = sorted((KIT / "agents").glob("*.md"))
+    assert len(workers) == 16
+    for path in workers:
+        text = path.read_text()
+        for line in WORKER_CONTRACT_LINES:
+            assert line in text, f"{path}: missing contract line {line!r}"
+        for heading in OUTPUT_HEADINGS:
+            assert heading in text, f"{path}: missing heading {heading!r}"

@@ -137,6 +137,11 @@ Commands:
 
 Agents must never infer approval.
 
+Approval lives in state: `./bin/juicer status` shows `approved` and
+`ship_approved`. The CLI executes no production action itself, so
+release skills and workflows must verify `ship_approved` is `true`
+before any production-impacting step and stop while it is `false`.
+
 ## 8. Workers
 
 | Worker | Responsibility |

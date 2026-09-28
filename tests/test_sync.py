@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 KIT = Path(__file__).resolve().parents[1]
 CLI = KIT / "bin" / "juicer"
 
@@ -96,6 +98,29 @@ def test_check_exit_codes(tmp_path):
     r = run(tmp_path, "sync", "opencode")
     assert r.returncode == 0
     assert run(tmp_path, "sync", "opencode", "--check").returncode == 0
+
+
+DRIFT_CASES = [
+    ("opencode", ".opencode/agents/reviewer.md"),
+    ("claude-code", ".claude/agents/reviewer.md"),
+    ("cursor", ".cursor/agents/reviewer.md"),
+    ("codex", ".codex/agents/reviewer.toml"),
+]
+
+
+@pytest.mark.parametrize("adapter_id,relpath", DRIFT_CASES)
+def test_drift_detected_by_check(tmp_path, adapter_id, relpath):
+    assert run(tmp_path, "sync", adapter_id).returncode == 0
+    target = tmp_path / relpath
+    assert target.exists(), relpath
+    target.write_text(target.read_text() + "\ntampered\n")
+
+    r = run(tmp_path, "sync", adapter_id, "--check")
+    assert r.returncode == 1
+    assert "pending" in r.stdout
+
+    assert run(tmp_path, "sync", adapter_id).returncode == 0
+    assert run(tmp_path, "sync", adapter_id, "--check").returncode == 0
 
 
 def test_unmanaged_files_never_deleted(tmp_path):

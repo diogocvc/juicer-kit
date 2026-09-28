@@ -176,3 +176,31 @@ This was the only code-execution surface of the Juicer runtime itself.
 Breaking change → 2.3.0. Projects embedding adapters pass the flag or
 set the env var once. Two registry tests were rewritten to assert the
 new default plus flag/env opt-in; CHANGELOG documents the opt-in.
+
+## 2026-09-28 — Ship gate: recorded approval, agent-side verification
+
+**Decision:**  
+Gate 4 stays documentation-and-contract enforced: `ship_approved` is
+recorded by `juicer ship-approve`, and the consumers of the gate (the
+`ship` skill, the release workflow and `agents/devops.md`) must verify
+it via `juicer status` and stop while it is `false`. `finish` was NOT
+changed to require `ship_approved`. A test asserts the three consumers
+mention `ship_approved`.
+
+**Why:**  
+The audit found `ship_approved` write-only — nothing read it, so the
+flag was decorative. Making `finish` require it would conflate mission
+completion with production approval (they are separate gates: one unit
+can finish without shipping). The CLI executes no production action,
+so the enforcement point is the agent contract, which must at least
+name the flag to be checkable.
+
+**Alternatives considered:**  
+- Require `ship_approved` in `finish`: rejected, couples two independent gates.  
+- CLI enforcement on a deploy command: rejected, no production command exists in the kit.  
+- Leave docs vague ("human confirmation"): rejected, an unverifiable gate.
+
+**Impact:**  
+No CLI behavior change (2.2.x-compatible). Release instructions now
+make the check explicit and testable; a consumer dropping the check
+breaks CI.

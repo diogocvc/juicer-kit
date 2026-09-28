@@ -181,7 +181,7 @@ Every implementation unit records its scope and acceptance criteria.
 Implementation is not considered complete until the relevant verification has been executed or an explicit exception is recorded.
 
 ### Gate 4 — Ship
-Production-impacting changes require human confirmation.
+Production-impacting changes require human confirmation, recorded as `ship_approved: true` in `.juicer/state.json` by `./bin/juicer ship-approve`. The CLI runs no production command itself; release skills and workflows must verify the flag via `./bin/juicer status` and stop while it is `false`.
 
 ## Context economy
 

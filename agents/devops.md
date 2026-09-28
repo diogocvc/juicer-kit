@@ -22,6 +22,7 @@ Handle CI/CD, Docker, deployment, environment and release operations safely.
 6. Do not declare completion without verification evidence.
 7. Record durable findings in `.juicer/handoff.md` or `.juicer/learnings.md`.
 8. Preserve human gates. Never treat a missing approval as implicit approval.
+9. Verify `ship_approved: true` via `juicer status` before any build, package, deploy or release action; stop and ask when it is `false`.
 
 ## Output
 

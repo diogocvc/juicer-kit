@@ -3,6 +3,8 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
+
 KIT = Path(__file__).resolve().parents[1]
 CLI = KIT / "bin" / "juicer"
 KIT_ADAPTERS = {"claude-code", "codex", "cursor", "opencode", "zed"}
@@ -14,6 +16,7 @@ FAKE_ADAPTER = textwrap.dedent(
 
     class Adapter(BaseAdapter):
         id = "fake"
+        executable = "juicer-no-such-binary"
         marker_dir = ".fake"
 
         def capabilities(self):
@@ -175,17 +178,36 @@ def test_install_writes_marker_but_sync_does_not(tmp_path):
     assert (tmp_path / ".codex" / "juicer-kit.md").exists()
 
 
-def test_invoke_returns_harness_instructions(tmp_path):
-    r = run(tmp_path, "invoke", "opencode", "reviewer", "--unit", "UNIT-001")
+INVOKE_CASES = [
+    ("opencode", "native route: @reviewer in chat"),
+    ("claude-code", "native route: Agent tool with subagent_type=reviewer"),
+    ("cursor", "native route: Task tool, subagent_type=reviewer"),
+    ("codex", "native route: Codex custom agent .codex/agents/reviewer.toml"),
+    ("zed", "native route: none; Zed has no subagents"),
+]
+
+
+@pytest.mark.parametrize("adapter_id,native", INVOKE_CASES)
+def test_invoke_returns_harness_instructions(tmp_path, adapter_id, native):
+    r = run(tmp_path, "invoke", adapter_id, "reviewer", "--unit", "UNIT-001")
     assert r.returncode == 0, r.stderr
-    assert "harness: opencode" in r.stdout
-    assert "@reviewer" in r.stdout
+    assert f"harness: {adapter_id}" in r.stdout
+    assert native in r.stdout
     assert "UNIT-001" in r.stdout
     assert "never calls a model" in r.stdout
 
-    r = run(tmp_path, "invoke", "opencode", "no-such-worker")
+    r = run(tmp_path, "invoke", adapter_id, "no-such-worker")
     assert r.returncode == 1
     assert "Unknown worker" in r.stderr
+
+
+def test_discover_reports_missing_binary(tmp_path):
+    write_adapter(tmp_path, "fake", FAKE_ADAPTER)
+    r = run(tmp_path, "capabilities", "fake", "--trust-project-adapters")
+    assert r.returncode == 0, r.stderr
+    assert "discover:" in r.stdout
+    assert "  available: false" in r.stdout
+    assert "'juicer-no-such-binary' not found on PATH" in r.stdout
 
 
 def test_kit_adapters_expose_full_contract():

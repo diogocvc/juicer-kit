@@ -249,3 +249,100 @@ def test_status_lists_available_commands(tmp_path):
     r = run(tmp_path, "status")
     for command in ("finish", "ship-approve", "start <unit>"):
         assert command in r.stdout
+
+
+def to_blocked(tmp_path):
+    run(tmp_path, "checkpoint", "ready")
+    fresh(tmp_path)
+    assert run(tmp_path, "start", "UNIT-001").returncode == 0
+    assert run(tmp_path, "checkpoint", "blocked").returncode == 0
+    assert state(tmp_path)["status"] == "blocked"
+
+
+def test_blocked_allows_approve_start_and_ready_checkpoint(tmp_path):
+    to_blocked(tmp_path)
+    assert run(tmp_path, "approve").returncode == 0
+    s = state(tmp_path)
+    assert s["status"] == "ready"
+    assert s["approved"] is True
+
+    to_blocked(tmp_path)
+    assert run(tmp_path, "start", "UNIT-002").returncode == 0
+    s = state(tmp_path)
+    assert s["status"] == "executing"
+    assert s["current_unit"] == "UNIT-002"
+
+    to_blocked(tmp_path)
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    s = state(tmp_path)
+    assert s["status"] == "ready"
+    assert s["current_unit"] is None
+
+
+def test_blocked_allows_new_mission(tmp_path):
+    to_blocked(tmp_path)
+    assert run(tmp_path, "mission", "Replanned objective").returncode == 0
+    s = state(tmp_path)
+    assert s["status"] == "planning"
+    assert s["approved"] is False
+    assert "Replanned objective" in (tmp_path / ".juicer" / "mission.md").read_text()
+
+
+def test_steady_state_gates_are_idempotent(tmp_path):
+    fresh(tmp_path)
+    assert run(tmp_path, "approve").returncode == 0
+    assert state(tmp_path)["status"] == "ready"
+
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    assert state(tmp_path)["status"] == "ready"
+
+    assert run(tmp_path, "ship-approve").returncode == 0
+    assert run(tmp_path, "ship-approve").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True
+
+    assert run(tmp_path, "finish").returncode == 0
+    assert run(tmp_path, "finish").returncode == 0
+    assert state(tmp_path)["status"] == "done"
+
+
+def test_ship_approve_rejected_from_blocked_allowed_from_done(tmp_path):
+    to_blocked(tmp_path)
+    r = run(tmp_path, "ship-approve")
+    assert r.returncode == 1
+    assert "Cannot ship-approve" in r.stderr
+    assert state(tmp_path)["ship_approved"] is False
+
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    assert run(tmp_path, "finish").returncode == 0
+    assert run(tmp_path, "ship-approve").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True
+
+
+def test_unknown_status_rejected_by_every_gate(tmp_path):
+    fresh(tmp_path)
+    assert run(tmp_path, "start", "UNIT-001").returncode == 0
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    path = tmp_path / ".juicer" / "state.json"
+    data = json.loads(path.read_text())
+    data["status"] = "bogus"
+    path.write_text(json.dumps(data))
+
+    for args in (("mission", "Objective"), ("approve",), ("start", "UNIT-009"),
+                 ("checkpoint", "executing"), ("finish",), ("ship-approve",)):
+        r = run(tmp_path, *args)
+        assert r.returncode == 1, args
+        assert "status=bogus" in r.stderr, args
+        assert "Traceback" not in r.stderr
+
+    r = run(tmp_path, "status")
+    assert r.returncode == 0
+    assert "available:" not in r.stdout
+
+
+def test_ship_gate_consumers_require_state_check():
+    skill = (KIT / ".agents" / "skills" / "ship" / "SKILL.md").read_text()
+    workflow = (KIT / ".juicer" / "workflows" / "release.md").read_text()
+    devops = (KIT / "agents" / "devops.md").read_text()
+    assert "ship_approved" in skill
+    assert "ship_approved" in workflow
+    assert "ship_approved" in devops
