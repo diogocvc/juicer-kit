@@ -120,3 +120,59 @@ generation) while pytest covers fresh-install drift.
 Adding an adapter without a valid yaml (or with drifting capabilities) now
 breaks CI. `tomllib`-based assertions run only on Python 3.11+; everything
 else runs on the full matrix.
+
+## 2026-09-28 — OpenCode legacy permission key is `bash` (2.2.0 correction)
+
+**Decision:**  
+The legacy `permission:` map generated for OpenCode uses the V1 tool
+names `edit` and `bash` (`LEGACY_PERMISSIONS` and the serializer in
+`adapters/opencode/adapter.py`); V2 `permissions:` rules keep `action:
+shell`. Docs (`adapter-contract.md` table) and `test_frontmatter` were
+corrected with it.
+
+**Why:**  
+OpenCode's V1 schema reads `permission.bash`, and the V1→V2 migration
+translates it to the `shell` action ("`bash` is now `shell`", migrate-v1
+docs; issue #50598 confirms the legacy map is still what gets applied).
+2.2.0 generated `shell` inside the legacy map — a key no schema reads —
+so shell rules (the read-only `deny` and edit `ask`) were silently
+ignored.
+
+**Alternatives considered:**  
+- Emit V2 `permissions:` by default: rejected, still parsed but not applied by the runtime.  
+- Keep `shell` in the legacy map: rejected, matches neither schema.
+
+**Impact:**  
+`juicer sync opencode` output changes (`shell:` → `bash:` under
+`permission:`); previously generated files re-sync cleanly. Shell rules
+are enforced again only after re-sync.
+
+## 2026-09-28 — Project adapters are untrusted by default
+
+**Decision:**  
+`bin/juicer` loads `ROOT/adapters` (project scope) only when trusted:
+`--trust-project-adapters` on `init/sync/install/invoke/adapters/
+capabilities`, or `JUICER_TRUST_PROJECT_ADAPTERS=1`. Without trust,
+project adapter directories are reported on stderr
+(`project adapters skipped (untrusted): ...`) and never imported;
+targeting one explicitly fails with `comes from untrusted project code`.
+`KIT/adapters` always loads; scopes are deduplicated by resolved path
+(so `ROOT == KIT` is silent). State commands never load adapters.
+
+**Why:**  
+`adapter.py` is executed with `importlib.exec_module`, so a project
+adapter runs with the user's privileges — the same trust as a Makefile
+or a git hook from that repository. 2.2.0 documented "project wins, no
+CLI edit needed" without requiring any deliberate action, meaning
+`juicer init` in an untrusted repository silently executed its code.
+This was the only code-execution surface of the Juicer runtime itself.
+
+**Alternatives considered:**  
+- Documentation only: rejected, leaves the default path unprotected.  
+- Kill-switch (trusted unless disabled): rejected, protection depends on remembering the flag.  
+- Interactive prompt: rejected, breaks CI and non-interactive use.
+
+**Impact:**  
+Breaking change → 2.3.0. Projects embedding adapters pass the flag or
+set the env var once. Two registry tests were rewritten to assert the
+new default plus flag/env opt-in; CHANGELOG documents the opt-in.

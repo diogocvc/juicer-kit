@@ -454,6 +454,11 @@ adapters/my-harness/
 
 Implement the adapter contract.
 
+Project adapters are executable Python and are **not loaded by
+default**. Use `--trust-project-adapters` (or set
+`JUICER_TRUST_PROJECT_ADAPTERS=1`) on `juicer sync`/`adapters`/etc. to
+load them — see the `Trust` section of `docs/adapter-contract.md`.
+
 ### Add a workflow
 
 Create `.juicer/workflows/my-workflow.md`. Workflows should describe process, not vendor-specific commands.

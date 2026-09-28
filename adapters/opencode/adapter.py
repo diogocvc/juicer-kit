@@ -16,14 +16,17 @@ Rules applied:
 - default format is the legacy ``permission`` map because V2 parses the
   ``permissions`` list but does not apply it yet (issue #50598); pass
   ``--opencode-format v2`` to emit the native V2 list
+- the legacy V1 map is keyed by tool name (``edit``, ``bash``); OpenCode
+  translates ``bash`` to the V2 ``shell`` action (migrate-v1 docs), so the
+  legacy shell rule MUST use ``bash`` — V2 rules use ``action: shell``
 - skills are NOT mirrored; OpenCode reads ``.agents/skills`` (and
   ``.claude/skills``) natively
 - the only entrypoint is ``AGENTS.md`` (no per-harness copy)
 
-access → permission mapping:
+access → permission mapping (legacy keys):
 
 ===========  ========  ========
-access       edit      shell
+access       edit      bash
 ===========  ========  ========
 read-only    deny      deny
 edit         allow     ask
@@ -41,9 +44,9 @@ from _base import (
 )
 
 LEGACY_PERMISSIONS = {
-    "read-only": {"edit": "deny", "shell": "deny"},
-    "edit": {"edit": "allow", "shell": "ask"},
-    "full": {"edit": "allow", "shell": "allow"},
+    "read-only": {"edit": "deny", "bash": "deny"},
+    "edit": {"edit": "allow", "bash": "ask"},
+    "full": {"edit": "allow", "bash": "allow"},
 }
 
 V2_PERMISSIONS = {
@@ -82,7 +85,7 @@ class Adapter(BaseAdapter):
         return {
             "description": description,
             "mode": "subagent",
-            "permission": f"\n  edit: {perms['edit']}\n  shell: {perms['shell']}",
+            "permission": f"\n  edit: {perms['edit']}\n  bash: {perms['bash']}",
         }
 
     def sync(self, ctx, dry_run=False):

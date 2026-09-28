@@ -135,7 +135,7 @@ Prohibited in every generated file: `role:`, `access:`, `tier:`,
 
 | harness    | key(s)                          | read-only            | edit              | full     |
 |------------|---------------------------------|----------------------|-------------------|----------|
-| OpenCode   | `permission` (or V2 `permissions`) | edit/shell: deny  | edit: allow, shell: ask | edit/shell: allow |
+| OpenCode   | `permission` (legacy: `edit`/`bash`) or V2 `permissions` | edit/bash: deny  | edit: allow, bash: ask | edit/bash: allow |
 | Claude Code | `tools`                        | read-only tool set   | read + write set  | omitted (all) |
 | Cursor     | `readonly`                      | `readonly: true`     | —                 | —        |
 | Codex      | `sandbox_mode`                  | `read-only`          | `workspace-write` | `workspace-write` |
@@ -259,14 +259,40 @@ Python `capabilities()` output.
 `bin/juicer` discovers adapters from two roots, in this order:
 
 ```text
-KIT/adapters/     # shipped with the kit
-ROOT/adapters/    # embedded by the project (wins on id collision)
+KIT/adapters/     # shipped with the kit — always loaded
+ROOT/adapters/    # embedded by the project — only when trusted (see Trust)
 ```
 
 A directory is an adapter when it contains `adapter.py`. Discovery
 imports the module, instantiates `Adapter`, and validates the `id` and
 the five methods. No `bin/juicer` edit is ever required to add or
 override an adapter.
+
+## Trust
+
+`adapter.py` is executable Python. The `init`, `sync`, `install`,
+`invoke`, `adapters` and `capabilities` commands import it with
+`importlib.exec_module`, so a project adapter runs with your
+privileges — the same trust you give a Makefile or a git hook from that
+repository. The trust model is explicit:
+
+- By default only `KIT/adapters` loads. Project adapter directories are
+  reported on stderr (`project adapters skipped (untrusted): ...`) and
+  never imported.
+- Pass `--trust-project-adapters` on any of the six commands above, or
+  set `JUICER_TRUST_PROJECT_ADAPTERS=1`, to load `ROOT/adapters`
+  (project wins on id collision when trusted, as before).
+- Targeting a project-only adapter without trust fails with
+  `comes from untrusted project code` instead of a misleading
+  "unknown adapter" error.
+- State commands (`mission`, `approve`, `start`, `checkpoint`,
+  `finish`, `ship-approve`, `status`, `worker`) never load adapters.
+- When `ROOT == KIT` (working inside the kit repository itself) both
+  roots are the same directories; they are deduplicated by resolved
+  path and no warning is emitted.
+
+Only run `juicer init`/`juicer sync` in repositories you trust, or keep
+project adapters disabled.
 
 ## Adding a new harness
 

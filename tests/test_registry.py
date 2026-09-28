@@ -1,3 +1,4 @@
+import os
 import subprocess
 import textwrap
 from pathlib import Path
@@ -78,24 +79,69 @@ def test_kit_adapters_discovered():
     assert set(r.stdout.split()) == KIT_ADAPTERS
 
 
-def test_project_adapter_discovered_without_cli_change(tmp_path):
-    assert run(tmp_path, "adapters").returncode == 0
-    assert set(run(tmp_path, "adapters").stdout.split()) == KIT_ADAPTERS
+def test_project_adapter_ignored_by_default(tmp_path):
+    r = run(tmp_path, "adapters")
+    assert r.returncode == 0, r.stderr
+    assert set(r.stdout.split()) == KIT_ADAPTERS
 
     write_adapter(tmp_path, "fake", FAKE_ADAPTER)
-    assert set(run(tmp_path, "adapters").stdout.split()) == KIT_ADAPTERS | {"fake"}
+
+    r = run(tmp_path, "adapters")
+    assert r.returncode == 0, r.stderr
+    assert set(r.stdout.split()) == KIT_ADAPTERS
+    assert "project adapters skipped (untrusted)" in r.stderr
+    assert "adapters/fake/" in r.stderr
 
     r = run(tmp_path, "capabilities", "fake")
+    assert r.returncode == 1
+    assert "untrusted project code" in r.stderr
+    assert r.stdout == ""
+
+    r = run(tmp_path, "sync", "fake")
+    assert r.returncode == 1
+    assert "untrusted project code" in r.stderr
+    assert not (tmp_path / ".fake").exists()
+
+
+def test_project_adapter_loads_with_trust_flag(tmp_path):
+    write_adapter(tmp_path, "fake", FAKE_ADAPTER)
+
+    r = run(tmp_path, "adapters", "--trust-project-adapters")
+    assert r.returncode == 0, r.stderr
+    assert set(r.stdout.split()) == KIT_ADAPTERS | {"fake"}
+    assert "skipped" not in r.stderr
+
+    r = run(tmp_path, "capabilities", "fake", "--trust-project-adapters")
     assert r.returncode == 0, r.stderr
     assert "id: fake" in r.stdout
     assert "subagents: false" in r.stdout
     assert "discover:" in r.stdout
 
-    r = run(tmp_path, "sync", "fake")
+    r = run(tmp_path, "sync", "fake", "--trust-project-adapters")
     assert r.returncode == 0, r.stderr
     assert "synced: fake" in r.stdout
     assert (tmp_path / ".fake" / "generated.txt").read_text() == "generated\n"
     assert (tmp_path / "AGENTS.md").exists()
+
+
+def test_project_adapter_loads_with_env(tmp_path):
+    write_adapter(tmp_path, "fake", FAKE_ADAPTER)
+    env = dict(os.environ, JUICER_TRUST_PROJECT_ADAPTERS="1")
+    r = subprocess.run([str(CLI), "adapters"], cwd=str(tmp_path),
+                       text=True, capture_output=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert set(r.stdout.split()) == KIT_ADAPTERS | {"fake"}
+    assert "skipped" not in r.stderr
+
+
+def test_init_does_not_load_untrusted_project_adapters(tmp_path):
+    write_adapter(tmp_path, "fake", FAKE_ADAPTER)
+    r = run(tmp_path, "init")
+    assert r.returncode == 0, r.stderr
+    assert "project adapters skipped (untrusted)" in r.stderr
+    assert "adapters/fake/" in r.stderr
+    assert not (tmp_path / ".fake").exists()
+    assert set(run(tmp_path, "adapters").stdout.split()) == KIT_ADAPTERS
 
 
 def test_unknown_adapter_exits_one(tmp_path):
@@ -112,7 +158,7 @@ def test_unknown_adapter_exits_one(tmp_path):
 
 def test_project_adapter_overrides_kit_id(tmp_path):
     write_adapter(tmp_path, "zed", OVERRIDE_ZED)
-    r = run(tmp_path, "sync", "zed")
+    r = run(tmp_path, "sync", "zed", "--trust-project-adapters")
     assert r.returncode == 0, r.stderr
     assert "synced: zed" in r.stdout
     assert (tmp_path / ".zed-override.txt").read_text() == "project wins\n"

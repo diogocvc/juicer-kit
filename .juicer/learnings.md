@@ -24,3 +24,25 @@ Default generation to the legacy `permission:` map (still applied and accepted b
 
 **Reusable rule:**  
 Before adopting a newly documented config format, verify the runtime actually applies it — parsing success is not enforcement. Re-check the tracking issue when bumping defaults.
+
+### 2026-09-28 — Legacy config keys must match the schema that reads them
+
+**Observation:**  
+The OpenCode legacy permission map was generated with the key `shell`,
+but the V1 schema reads `bash`. The file parsed cleanly and every test
+passed — shell rules were simply ignored at runtime.
+
+**Root cause:**  
+The key was named after the V2 action (`shell`) instead of the V1 tool
+name (`bash`); tests and docs were written from the same wrong
+assumption, so they validated the bug instead of catching it.
+
+**Resolution:**  
+`bash` in the legacy map (V2 rules keep `action: shell`); tests and the
+adapter-contract table updated; correction recorded in `decisions.md`.
+
+**Reusable rule:**  
+A key that parses is not a key that applies. When mirroring a vendor
+schema, verify key names against the schema of the version that
+enforces it, and never write a test that only asserts what the generator
+emits — assert against the schema source.

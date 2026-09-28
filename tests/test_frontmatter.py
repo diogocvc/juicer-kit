@@ -71,11 +71,11 @@ def test_generated_frontmatter_uses_only_harness_keys(tmp_path):
 def test_opencode_permission_mapping(tmp_path):
     assert run(tmp_path, "sync", "opencode").returncode == 0
     reviewer = (tmp_path / ".opencode" / "agents" / "reviewer.md").read_text()
-    assert "permission:\n  edit: deny\n  shell: deny" in reviewer
+    assert "permission:\n  edit: deny\n  bash: deny" in reviewer
     coder = (tmp_path / ".opencode" / "agents" / "coder.md").read_text()
-    assert "permission:\n  edit: allow\n  shell: ask" in coder
+    assert "permission:\n  edit: allow\n  bash: ask" in coder
     devops = (tmp_path / ".opencode" / "agents" / "devops.md").read_text()
-    assert "permission:\n  edit: allow\n  shell: allow" in devops
+    assert "permission:\n  edit: allow\n  bash: allow" in devops
 
 
 def test_opencode_v2_format_flag(tmp_path):

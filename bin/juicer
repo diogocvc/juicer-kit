@@ -29,7 +29,10 @@ def now():
 def read_state():
     if not STATE.exists():
         return {"schema":1,"kit_version":"2.2.0","status":"uninitialized"}
-    return json.loads(STATE.read_text())
+    try:
+        return json.loads(STATE.read_text())
+    except ValueError as error:
+        fail(f"Invalid state file {STATE}: {error}")
 
 def write_state(state):
     STATE.parent.mkdir(parents=True, exist_ok=True)
@@ -136,23 +139,62 @@ def _import_adapter(directory, scope):
         fail(f"Adapter '{adapter_id}' missing methods: {', '.join(missing)}")
     return adapter
 
+TRUST_PROJECT = False
+
+def _env_trust():
+    return os.environ.get("JUICER_TRUST_PROJECT_ADAPTERS", "").strip().lower() in ("1", "true", "yes", "on")
+
+def project_adapters_trusted():
+    return TRUST_PROJECT or _env_trust()
+
+def _project_adapter_dirs():
+    base = ROOT / "adapters"
+    if not base.is_dir():
+        return []
+    return [entry for entry in sorted(base.iterdir())
+            if entry.is_dir() and (entry / "adapter.py").exists()]
+
 def load_adapters():
-    """Discover adapters in KIT/adapters and ROOT/adapters (project wins)."""
+    """Discover adapters in KIT/adapters; ROOT/adapters only when trusted."""
     found = {}
+    seen_paths = set()
+    skipped = []
+    trusted = project_adapters_trusted()
     for scope, base in (("kit", KIT / "adapters"), ("project", ROOT / "adapters")):
         if not base.is_dir():
             continue
         for entry in sorted(base.iterdir()):
-            if entry.is_dir() and (entry / "adapter.py").exists():
-                adapter = _import_adapter(entry, scope)
-                found[adapter.id] = adapter
+            if not (entry.is_dir() and (entry / "adapter.py").exists()):
+                continue
+            resolved = entry.resolve()
+            if resolved in seen_paths:
+                continue
+            if scope == "project" and not trusted:
+                skipped.append(entry.name)
+                continue
+            adapter = _import_adapter(entry, scope)
+            seen_paths.add(resolved)
+            found[adapter.id] = adapter
+    if skipped:
+        names = ", ".join(f"adapters/{name}/" for name in skipped)
+        print(f"warning: project adapters skipped (untrusted): {names} — "
+              "pass --trust-project-adapters or set JUICER_TRUST_PROJECT_ADAPTERS=1",
+              file=sys.stderr)
     return found
+
+def _fail_unknown_adapter(target, adapters):
+    if not project_adapters_trusted():
+        candidate = ROOT / "adapters" / target
+        if candidate.is_dir() and (candidate / "adapter.py").exists():
+            fail(f"Adapter {target!r} comes from untrusted project code (adapters/{target}/); "
+                 "pass --trust-project-adapters or set JUICER_TRUST_PROJECT_ADAPTERS=1")
+    fail(f"Unknown adapter: {target} (available: {', '.join(sorted(adapters)) or 'none'})")
 
 def get_adapter(target):
     adapters = load_adapters()
-    if target not in adapters:
-        fail(f"Unknown adapter: {target} (available: {', '.join(sorted(adapters)) or 'none'})")
-    return adapters[target]
+    if target in adapters:
+        return adapters[target]
+    _fail_unknown_adapter(target, adapters)
 
 def list_adapters():
     return sorted(load_adapters())
@@ -307,7 +349,7 @@ def sync(target, opencode_format=None, dry_run=False, check=False, force=False):
     elif target in adapters:
         selected = [adapters[target]]
     else:
-        fail(f"Unknown adapter: {target} (available: {', '.join(sorted(adapters)) or 'none'})")
+        _fail_unknown_adapter(target, adapters)
     ctx = make_ctx(**({"opencode_format": opencode_format} if opencode_format else {}))
     pending = 0
     for adapter in selected:
@@ -443,14 +485,18 @@ def cmd_finish(_):
 def main():
     p = argparse.ArgumentParser(prog="juicer")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name, fn in [("init",cmd_init),("status",cmd_status),("approve",cmd_approve),
+    trust = argparse.ArgumentParser(add_help=False)
+    trust.add_argument("--trust-project-adapters", action="store_true",
+                       help="import adapter.py from the project's adapters/ directory (untrusted by default)")
+    for name, fn in [("status",cmd_status),("approve",cmd_approve),
                      ("ship-approve",cmd_ship_approve),("finish",cmd_finish)]:
         sub.add_parser(name).set_defaults(fn=fn)
+    sub.add_parser("init", parents=[trust]).set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)
     cp = sub.add_parser("checkpoint"); cp.add_argument("status", choices=["executing","blocked","ready","done"]); cp.set_defaults(fn=cmd_checkpoint)
     wk = sub.add_parser("worker"); wk.add_argument("worker"); wk.set_defaults(fn=cmd_worker)
-    sy = sub.add_parser("sync")
+    sy = sub.add_parser("sync", parents=[trust])
     sy.add_argument("target")
     sy.add_argument("--opencode-format", choices=["legacy", "v2"], default=None)
     sy.add_argument("--dry-run", action="store_true")
@@ -458,24 +504,26 @@ def main():
     sy.add_argument("--force", action="store_true")
     sy.set_defaults(fn=lambda a: sync(a.target, opencode_format=a.opencode_format,
                                       dry_run=a.dry_run, check=a.check, force=a.force))
-    ins = sub.add_parser("install")
+    ins = sub.add_parser("install", parents=[trust])
     ins.add_argument("target")
     ins.add_argument("--opencode-format", choices=["legacy", "v2"], default=None)
     ins.add_argument("--dry-run", action="store_true")
     ins.add_argument("--check", action="store_true")
     ins.add_argument("--force", action="store_true")
     ins.set_defaults(fn=cmd_install)
-    inv = sub.add_parser("invoke")
+    inv = sub.add_parser("invoke", parents=[trust])
     inv.add_argument("target")
     inv.add_argument("worker")
     inv.add_argument("--unit", default=None)
     inv.set_defaults(fn=cmd_invoke)
-    la = sub.add_parser("adapters")
+    la = sub.add_parser("adapters", parents=[trust])
     la.set_defaults(fn=lambda a: print("\n".join(list_adapters())))
-    ca = sub.add_parser("capabilities")
+    ca = sub.add_parser("capabilities", parents=[trust])
     ca.add_argument("target")
     ca.set_defaults(fn=lambda a: show_capabilities(a.target))
     args = p.parse_args()
+    global TRUST_PROJECT
+    TRUST_PROJECT = bool(getattr(args, "trust_project_adapters", False))
     args.fn(args)
 
 if __name__ == "__main__":

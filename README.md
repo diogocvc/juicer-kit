@@ -95,6 +95,12 @@ Then:
 
 The installer creates the runtime state and mirrors portable skills into supported harness locations.
 
+Adapters are executable Python. By default only the adapters bundled
+with the kit are loaded; to load adapters from the project's
+`adapters/` directory, pass `--trust-project-adapters` or set
+`JUICER_TRUST_PROJECT_ADAPTERS=1`. See the `Trust` section of
+`docs/adapter-contract.md`.
+
 ## Primary workflow
 
 ```text

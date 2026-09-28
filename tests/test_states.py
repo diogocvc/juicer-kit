@@ -20,6 +20,15 @@ def fresh(tmp_path, objective="Objective under test"):
     assert run(tmp_path, "approve").returncode == 0
 
 
+def test_corrupt_state_fails_cleanly(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    (tmp_path / ".juicer" / "state.json").write_text("{not valid json")
+    r = run(tmp_path, "status")
+    assert r.returncode == 1
+    assert "Invalid state file" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
 def test_initial_state_is_idle(tmp_path):
     assert run(tmp_path, "init").returncode == 0
     s = state(tmp_path)
