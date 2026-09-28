@@ -204,3 +204,26 @@ name the flag to be checkable.
 No CLI behavior change (2.2.x-compatible). Release instructions now
 make the check explicit and testable; a consumer dropping the check
 breaks CI.
+
+## 2026-09-28 — pt-BR guide translation deferred
+
+**Decision:**  
+`docs/GUIDE.pt-BR.md` keeps translated headers and translated
+2.3.0-era additions (trust model, ship gate), while the body remains
+English (~90% identical to the EN guide). The full translation is a
+separate unit, not folded into the docs-consistency fix.
+
+**Why:**  
+The consistency audit against 2.3.0 found no version drift in the
+pt-BR guide; the untranslated body is pre-existing debt. Mixing ~490
+lines of translation into a ~30-line consistency commit would make the
+diff unreviewable, and terminology choices ("gates", "mission",
+"checkpoint") deserve a dedicated review pass.
+
+**Alternatives considered:**  
+- Translate everything in the same commit: rejected, unreviewable diff, no native pass.  
+- Translate only the sections touched: rejected, deepens the mixed-language state without fixing the root.
+
+**Impact:**  
+A future approved unit translates `GUIDE.pt-BR.md` end to end and
+removes this entry.

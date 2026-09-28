@@ -86,6 +86,10 @@ Modelos não são definidos nos contratos dos workers. A seleção de modelo/pro
 
 The initializer creates the `.juicer/` state and synchronizes supported adapters.
 
+Adapters do diretório `adapters/` do projeto são Python executável e não
+são carregados por padrão; use `--trust-project-adapters` (ou
+`JUICER_TRUST_PROJECT_ADAPTERS=1`) — veja a seção 19.
+
 The canonical portable skill tree is `.agents/skills/`.
 
 ## 6. Modelo de Mission
@@ -267,9 +271,11 @@ finder → analyst → architect → planner
                  ↓
           HUMAN APPROVAL
                  ↓
-        coder/editor → reviewer → tester → documenter → devops
+        coder/editor → reviewer → tester → documenter
                  ↓
         HUMAN SHIP APPROVAL
+                 ↓
+             devops
 ```
 
 Not every feature needs every worker.
@@ -289,7 +295,7 @@ finder → analyst → refactorer → reviewer → tester
 ### Release
 
 ```text
-reviewer → tester → security (when applicable) → devops → HUMAN APPROVAL
+reviewer → tester → security (when applicable) → HUMAN APPROVAL → devops
 ```
 
 Workflows are control structures, not mandatory autonomous swarms.
@@ -363,6 +369,9 @@ Remediation
 Never commit API keys, private keys, passwords, tokens or production credentials.
 
 Destructive and production-impacting actions remain behind explicit human approval.
+
+Adapters de projeto são Python executável e não confiados por padrão
+(veja a seção 19); carregue-os apenas em repositórios confiáveis.
 
 ## 17. Troubleshooting
 

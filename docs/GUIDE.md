@@ -86,6 +86,10 @@ Models are not hardcoded into worker contracts. Model/provider selection belongs
 
 The initializer creates the `.juicer/` state and synchronizes supported adapters.
 
+Adapters from the project's `adapters/` directory are executable Python
+and are not loaded by default; use `--trust-project-adapters` (or
+`JUICER_TRUST_PROJECT_ADAPTERS=1`) — see section 19.
+
 The canonical portable skill tree is `.agents/skills/`.
 
 ## 6. Mission model
@@ -266,9 +270,11 @@ finder → analyst → architect → planner
                  ↓
           HUMAN APPROVAL
                  ↓
-        coder/editor → reviewer → tester → documenter → devops
+        coder/editor → reviewer → tester → documenter
                  ↓
         HUMAN SHIP APPROVAL
+                 ↓
+             devops
 ```
 
 Not every feature needs every worker.
@@ -288,7 +294,7 @@ finder → analyst → refactorer → reviewer → tester
 ### Release
 
 ```text
-reviewer → tester → security (when applicable) → devops → HUMAN APPROVAL
+reviewer → tester → security (when applicable) → HUMAN APPROVAL → devops
 ```
 
 Workflows are control structures, not mandatory autonomous swarms.
@@ -362,6 +368,9 @@ Remediation
 Never commit API keys, private keys, passwords, tokens or production credentials.
 
 Destructive and production-impacting actions remain behind explicit human approval.
+
+Project adapters are executable Python and are untrusted by default
+(see section 19); load them only in repositories you trust.
 
 ## 17. Troubleshooting
 

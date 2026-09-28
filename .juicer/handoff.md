@@ -9,8 +9,8 @@ Use this file to make a fresh agent session immediately useful.
   `.juicer/mission.md` stays the shipped template ("No active mission").
 - Unit: FASE 3 (docs + release 2.3.0) done in this commit; awaiting user
   decision on tagging/pushing.
-- Status: 3 commits on main after `d7695a8` (v2.2.0), all tests green,
-  version 2.3.0 everywhere.
+- Status: 4 commits on main after `d7695a8` (v2.2.0), all tests green,
+  version 2.3.0 everywhere (tag `v2.3.0` pushed, CI success).
 
 ## What was completed
 
@@ -25,12 +25,17 @@ Use this file to make a fresh agent session immediately useful.
   (blocked/idempotent/ship/unknown-status); invoke ×5, missing-binary
   discover, drift ×4, claude provenance; worker + ship-consumer
   invariants; decision entry for ship option A.
-- FASE 3 (this commit) — adapter-contract `capabilities()` wording
+- FASE 3 `c219359` — adapter-contract `capabilities()` wording
   (declared, `discover()` reports the environment); README init mirrors
   workers + skills; GUIDE EN/pt-BR v2.3 strings; `CHANGELOG.md` 2.3.0;
   version 2.3.0 in `VERSION`, `kit.yaml`, `.juicer/state.json`,
   `bin/juicer` (docstring, two `kit_version` defaults, init banner),
   `test_version_files` pin.
+- DOCS (this commit) — README/GUIDE consistency pass vs 2.3.0:
+  README skills-mirror claim (only Claude mirrors), Codex in the
+  architecture diagram, non-exhaustive worker list, §13 flows moved
+  human approval before devops, §5 and §16 trust notes in both guides,
+  pt-BR translation debt recorded (decisions + this file).
 
 ## What remains
 
@@ -72,6 +77,9 @@ Use this file to make a fresh agent session immediately useful.
   templates. Pre-existing pattern; needs a design decision before changing.
 - Harness mirrors are gitignored, so CI cannot detect a stale local mirror;
   the write-then-check job only proves determinism.
+- `docs/GUIDE.pt-BR.md` body is ~90% English (headers and 2.3.0-era
+  additions translated); needs a dedicated translation unit
+  (decision 2026-09-28 — pt-BR guide translation deferred).
 - V2 OpenCode `permissions:` is parsed but not applied upstream (#50598);
   re-check when bumping the default.
 

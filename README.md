@@ -30,14 +30,14 @@ The repository is the source of truth. Agent sessions are replaceable workers.
 
 3. **Skills are portable**
    - Canonical skills live in `.agents/skills/`.
-   - Adapters can mirror them into `.opencode/skills/`, `.claude/skills/` and `.cursor/skills/`.
+   - Only Claude Code mirrors them into `.claude/skills/`; OpenCode, Cursor and Zed read `.agents/skills/` natively.
 
 4. **Agents are workers, not the operating system**
    - Role definitions describe capabilities and responsibilities.
    - The workflow does not depend on one orchestrator being able to spawn another agent.
 
 5. **Direct workers are first-class**
-   - Finder, analyst, architect, planner, coder, reviewer, tester, security, debugger, fixer, documenter and DevOps workers can be invoked independently.
+   - Workers such as finder, analyst, coder, reviewer, tester, security and devops can be invoked independently (full list in Roles).
    - Native harness delegation is optional.
 
 6. **Every execution unit is checkable**
@@ -64,18 +64,20 @@ The repository is the source of truth. Agent sessions are replaceable workers.
                            │
                  ┌─────────┴─────────┐
                  │                   │
-          Portable skills       Worker roles
-          .agents/skills/       agents/*.md
-                 │                   │
-        ┌────────┼─────────┐         │
-        ▼        ▼         ▼         ▼
-    OpenCode   Claude    Cursor     Zed
-      adapter  adapter   adapter   adapter
-        │        │         │         │
-        └────────┴─────────┴─────────┘
-                           │
-                           ▼
-                       MODEL(S)
+           Portable skills       Worker roles
+           .agents/skills/       agents/*.md
+                  │                   │
+                  └─────────┬─────────┘
+                            │
+        ┌──────────┬────────┼────────┬──────────┐
+        ▼          ▼        ▼        ▼          ▼
+    OpenCode    Claude    Cursor    Codex      Zed
+      adapter   adapter   adapter  adapter    adapter
+        │          │        │        │          │
+        └──────────┴────────┴────────┴──────────┘
+                            │
+                            ▼
+                        MODEL(S)
 ```
 
 ## Install
