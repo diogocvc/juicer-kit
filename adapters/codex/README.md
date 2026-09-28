@@ -41,7 +41,16 @@ The adapter is intentionally thin: it should not duplicate the Juicer workflow s
 
 - Skills are **not** mirrored: Codex reads `.agents/skills` natively.
 - Entry point: `AGENTS.md` is native to Codex.
-- Custom agents are TOML files under `.codex/agents/`.
+- Custom agents are TOML files under `.codex/agents/` using only the
+  documented keys: `name`, `description`, `developer_instructions`,
+  `sandbox_mode`. `model` is never emitted.
+- `access` maps to `sandbox_mode`:
+
+  | access  | sandbox_mode |
+  |---------|--------------|
+  | read-only | read-only |
+  | edit    | workspace-write |
+  | full    | workspace-write |
 
 ## Sources consulted (2026-09-28)
 

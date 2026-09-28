@@ -8,7 +8,10 @@ Verified sources (consulted 2026-09-28):
 Rules applied:
 
 - subagents live in ``.cursor/agents/<file>.md``; ``name`` is omitted
-  (derived from the filename) and ``readonly`` marks read-only agents
+  (derived from the filename), ``model`` is never emitted (never
+  ``model: inherit``)
+- generated frontmatter keys are ``description`` and, for read-only
+  workers, ``readonly: true``
 - skills are NOT mirrored; Cursor reads ``.agents/skills`` natively
 - entrypoint: ``AGENTS.md``
 """
@@ -17,7 +20,8 @@ from _base import (
     Adapter as BaseAdapter,
     ensure_entrypoint,
     iter_workers,
-    render_frontmatter,
+    render_agent,
+    worker_access,
     write_generated,
 )
 
@@ -38,13 +42,18 @@ class Adapter(BaseAdapter):
             "persistent_context": True,
         }
 
+    def _frontmatter(self, worker):
+        frontmatter = {
+            "description": worker.frontmatter.get("description", worker.name),
+        }
+        if worker_access(worker) == "read-only":
+            frontmatter["readonly"] = "true"
+        return frontmatter
+
     def sync(self, ctx, dry_run=False):
         changes = [ensure_entrypoint(ctx, dry_run=dry_run)]
         for worker in iter_workers(ctx):
-            frontmatter = {
-                "description": worker.frontmatter.get("description", worker.name),
-            }
-            content = render_frontmatter(frontmatter) + "\n" + worker.body.rstrip() + "\n"
+            content = render_agent(self._frontmatter(worker), worker)
             path = ctx.root / self.agents_dir / f"{worker.name}.md"
             changes.append(write_generated(path, content, dry_run=dry_run))
         return changes

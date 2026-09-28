@@ -2,6 +2,8 @@
 name: devops
 description: Infrastructure and release
 role: devops
+access: full
+tier: cold
 ---
 
 # Infrastructure and release

@@ -2,6 +2,8 @@
 name: debugger
 description: Root-cause investigation
 role: debugger
+access: read-only
+tier: warm
 ---
 
 # Root-cause investigation

@@ -2,6 +2,8 @@
 name: security
 description: Security audit
 role: security
+access: read-only
+tier: warm
 ---
 
 # Security audit

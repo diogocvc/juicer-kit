@@ -2,6 +2,8 @@
 name: fixer
 description: Minimal bug fix
 role: fixer
+access: edit
+tier: warm
 ---
 
 # Minimal bug fix

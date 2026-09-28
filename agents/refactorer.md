@@ -2,6 +2,8 @@
 name: refactorer
 description: Structural refactoring
 role: refactorer
+access: edit
+tier: warm
 ---
 
 # Structural refactoring

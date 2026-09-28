@@ -2,6 +2,8 @@
 name: editor
 description: Safe existing-code modification
 role: editor
+access: edit
+tier: warm
 ---
 
 # Safe existing-code modification

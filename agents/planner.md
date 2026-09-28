@@ -2,6 +2,8 @@
 name: planner
 description: Atomic task planning
 role: planner
+access: read-only
+tier: warm
 ---
 
 # Atomic task planning

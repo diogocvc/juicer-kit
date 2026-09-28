@@ -142,7 +142,7 @@ def show_capabilities(target):
         if key in info:
             print(f"  {key}: {_format(info[key])}")
 
-def sync(target):
+def sync(target, opencode_format=None):
     ensure_runtime()
     adapters = load_adapters()
     if target == "all":
@@ -153,11 +153,17 @@ def sync(target):
         selected = [adapters[target]]
     else:
         fail(f"Unknown adapter: {target} (available: {', '.join(sorted(adapters)) or 'none'})")
-    ctx = make_ctx()
+    ctx = make_ctx(**({"opencode_format": opencode_format} if opencode_format else {}))
     for adapter in selected:
-        changes = adapter.sync(ctx, dry_run=False)
+        changes = _call(adapter.sync, ctx, dry_run=False)
         written = sum(1 for c in changes if c is not None and c.action == "write")
         print(f"synced: {adapter.id} ({written} written)")
+
+def _call(method, *args, **kwargs):
+    try:
+        return method(*args, **kwargs)
+    except ValueError as error:
+        fail(str(error))
 
 
 def cmd_init(_):
@@ -247,7 +253,8 @@ def cmd_worker(args):
 def cmd_install(args):
     ensure_runtime()
     adapter = get_adapter(args.target)
-    changes = adapter.install(make_ctx(), dry_run=False)
+    ctx = make_ctx(**({"opencode_format": args.opencode_format} if getattr(args, "opencode_format", None) else {}))
+    changes = _call(adapter.install, ctx, dry_run=False)
     written = sum(1 for c in changes if c is not None and c.action == "write")
     print(f"installed: {adapter.id} ({written} written)")
 
@@ -277,9 +284,11 @@ def main():
     wk = sub.add_parser("worker"); wk.add_argument("worker"); wk.set_defaults(fn=cmd_worker)
     sy = sub.add_parser("sync")
     sy.add_argument("target")
-    sy.set_defaults(fn=lambda a: sync(a.target))
+    sy.add_argument("--opencode-format", choices=["legacy", "v2"], default=None)
+    sy.set_defaults(fn=lambda a: sync(a.target, opencode_format=a.opencode_format))
     ins = sub.add_parser("install")
     ins.add_argument("target")
+    ins.add_argument("--opencode-format", choices=["legacy", "v2"], default=None)
     ins.set_defaults(fn=cmd_install)
     inv = sub.add_parser("invoke")
     inv.add_argument("target")

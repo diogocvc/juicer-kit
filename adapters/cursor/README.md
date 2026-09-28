@@ -15,7 +15,9 @@ Cursor-native agent features are optional execution mechanisms.
 ## Behavior
 
 - Subagents are generated into `.cursor/agents/<file>.md`; `name` is
-  omitted (derived from the filename), `readonly` marks read-only agents.
+  omitted (derived from the filename) and `model` is never emitted.
+- `access` maps to `readonly: true` for `read-only` workers; `edit` and
+  `full` workers emit no `readonly` key.
 - Skills are **not** mirrored: Cursor reads `.agents/skills` natively.
 - Entry point: `AGENTS.md`.
 

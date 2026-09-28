@@ -13,6 +13,7 @@ an adapter module.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 FRONTMATTER_DELIM = "---"
+ACCESS_LEVELS = ("read-only", "edit", "full")
+TIER_LEVELS = ("hot", "warm", "cold")
 
 
 @dataclass
@@ -80,12 +83,61 @@ def read_frontmatter(path):
 
 
 def render_frontmatter(mapping):
-    """Render ``mapping`` as frontmatter text ending with a blank line."""
+    """Render ``mapping`` as frontmatter text ending with a newline.
+
+    Values containing newlines (nested mappings/lists) are emitted as
+    ``key:`` followed by the pre-indented block.
+    """
     lines = [FRONTMATTER_DELIM]
     for key, value in mapping.items():
-        lines.append(f"{key}: {value}")
+        text = str(value)
+        if "\n" in text:
+            lines.append(f"{key}:{text}")
+        else:
+            lines.append(f"{key}: {text}")
     lines.append(FRONTMATTER_DELIM)
     return "\n".join(lines) + "\n"
+
+
+def worker_access(worker):
+    """Canonical access level of a worker: read-only, edit or full."""
+    value = worker.frontmatter.get("access", "edit")
+    if value not in ACCESS_LEVELS:
+        raise ValueError(
+            f"worker {worker.name}: invalid access {value!r} "
+            f"(expected one of {', '.join(ACCESS_LEVELS)})"
+        )
+    return value
+
+
+def worker_tier(worker):
+    """Canonical invocation tier of a worker: hot, warm or cold."""
+    value = worker.frontmatter.get("tier", "warm")
+    if value not in TIER_LEVELS:
+        raise ValueError(
+            f"worker {worker.name}: invalid tier {value!r} "
+            f"(expected one of {', '.join(TIER_LEVELS)})"
+        )
+    return value
+
+
+def provenance(worker, canonical="agents"):
+    """Source path and content hash used to mark generated files."""
+    digest = hashlib.sha256(worker.body.encode("utf-8")).hexdigest()[:12]
+    return f"{canonical}/{worker.name}.md sha256:{digest}"
+
+
+def render_agent(frontmatter, worker, canonical="agents"):
+    """Render a harness agent file: frontmatter, provenance, canonical body.
+
+    Canonical frontmatter is never copied; only the body travels.
+    """
+    return (
+        render_frontmatter(frontmatter)
+        + f"\n<!-- juicer-kit: generated from {provenance(worker, canonical)} -->\n\n"
+        + worker.body.rstrip()
+        + "\n"
+    )
 
 
 def write_generated(path, content, dry_run=False):

@@ -2,6 +2,8 @@
 name: researcher
 description: External technical research
 role: researcher
+access: read-only
+tier: cold
 ---
 
 # External technical research

@@ -2,6 +2,8 @@
 name: finder
 description: Fast repository reconnaissance
 role: finder
+access: read-only
+tier: cold
 ---
 
 # Fast repository reconnaissance

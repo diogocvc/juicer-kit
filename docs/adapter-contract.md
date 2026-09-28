@@ -115,6 +115,38 @@ native subagent unavailable
 Juicer workflow breaks
 ```
 
+## Canonical worker attributes
+
+Canonical worker frontmatter may carry harness-only attributes that
+must never be copied into generated files:
+
+```yaml
+name: reviewer
+description: Code review
+role: reviewer
+access: read-only   # read-only | edit | full
+tier: hot           # hot | warm | cold (canonical planning only)
+```
+
+Prohibited in every generated file: `role:`, `access:`, `tier:`,
+`model:` (including `model: inherit`).
+
+`access` is the single source for permission mapping:
+
+| harness    | key(s)                          | read-only            | edit              | full     |
+|------------|---------------------------------|----------------------|-------------------|----------|
+| OpenCode   | `permission` (or V2 `permissions`) | edit/shell: deny  | edit: allow, shell: ask | edit/shell: allow |
+| Claude Code | `tools`                        | read-only tool set   | read + write set  | omitted (all) |
+| Cursor     | `readonly`                      | `readonly: true`     | —                 | —        |
+| Codex      | `sandbox_mode`                  | `read-only`          | `workspace-write` | `workspace-write` |
+| Zed        | none (no subagents)             | —                    | —                 | —        |
+
+`name` rules: required in `.claude/agents/`, prohibited in
+`.opencode/agents/`, omitted (filename-derived) in `.cursor/agents/`.
+
+Workers without `access` default to `edit`; invalid `access`/`tier`
+values abort `sync` with exit 1.
+
 ## Python contract
 
 Adapters are Python modules loaded by `bin/juicer`:

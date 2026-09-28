@@ -2,6 +2,8 @@
 name: tester
 description: Test engineering
 role: tester
+access: full
+tier: hot
 ---
 
 # Test engineering

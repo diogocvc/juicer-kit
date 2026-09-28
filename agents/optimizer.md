@@ -2,6 +2,8 @@
 name: optimizer
 description: Performance optimization
 role: optimizer
+access: edit
+tier: cold
 ---
 
 # Performance optimization

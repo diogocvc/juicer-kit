@@ -2,6 +2,8 @@
 name: reviewer
 description: Code review
 role: reviewer
+access: read-only
+tier: hot
 ---
 
 # Code review

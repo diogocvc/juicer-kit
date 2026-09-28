@@ -2,6 +2,8 @@
 name: analyst
 description: Deep technical analysis
 role: analyst
+access: read-only
+tier: warm
 ---
 
 # Deep technical analysis

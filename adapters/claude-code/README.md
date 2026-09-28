@@ -17,6 +17,14 @@ Native Claude subagents are only an execution adapter.
 - Subagents are generated into `.claude/agents/<name>.md`; the `name`
   frontmatter key is required, and `role`/`access`/`tier`/`model` are
   rejected.
+- `access` maps to `tools`:
+
+  | access  | tools |
+  |---------|-------|
+  | read-only | Read, Grep, Glob, WebFetch, WebSearch |
+  | edit    | read set + Edit, Write, NotebookEdit, Bash, Task, TodoWrite |
+  | full    | omitted (inherits every session tool) |
+
 - Skills **are** mirrored into `.claude/skills` (Claude Code does not
   read `.agents/skills` natively).
 - Entry point: `AGENTS.md` is read natively by Claude Code >= 2.1.277

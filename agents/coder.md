@@ -2,6 +2,8 @@
 name: coder
 description: New implementation
 role: coder
+access: edit
+tier: hot
 ---
 
 # New implementation

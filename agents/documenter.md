@@ -2,6 +2,8 @@
 name: documenter
 description: Technical documentation
 role: documenter
+access: edit
+tier: warm
 ---
 
 # Technical documentation

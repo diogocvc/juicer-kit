@@ -2,6 +2,8 @@
 name: architect
 description: Solution architecture
 role: architect
+access: read-only
+tier: warm
 ---
 
 # Solution architecture
