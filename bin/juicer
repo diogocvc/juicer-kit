@@ -2,7 +2,7 @@
 """Juicer Kit v2.1 CLI. Dependency-free project workflow controller."""
 
 from __future__ import annotations
-import argparse, json, os, shutil
+import argparse, json, os, re, shutil, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +13,13 @@ MISSION = ROOT / ".juicer" / "mission.md"
 PLAN = ROOT / ".juicer" / "plan.md"
 HANDOFF = ROOT / ".juicer" / "handoff.md"
 SOURCE_SKILLS = KIT / ".agents" / "skills"
+
+WORKER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/")
+
+def fail(message):
+    print(f"error: {message}", file=sys.stderr)
+    sys.exit(1)
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -27,11 +34,39 @@ def write_state(state):
     state["updated_at"] = now()
     STATE.write_text(json.dumps(state, indent=2) + "\n")
 
+def ensure_mission():
+    mission = ROOT / ".juicer" / "mission.md"
+    if not mission.exists():
+        mission.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(KIT / ".juicer" / "mission.md", mission)
+
 def ensure_runtime():
     (ROOT / ".juicer").mkdir(exist_ok=True)
     if not STATE.exists():
         write_state({"schema":1,"kit_version":"2.1.0","status":"idle","mission_id":None,
                      "current_unit":None,"approved":False,"ship_approved":False})
+    ensure_mission()
+
+def copy_missing(src, dst):
+    if src.is_dir():
+        for child in sorted(src.iterdir()):
+            copy_missing(child, dst / child.name)
+    elif src.is_file() and not dst.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+
+def ensure_project_gitignore():
+    path = ROOT / ".gitignore"
+    existing = path.read_text().splitlines() if path.exists() else []
+    missing = [line for line in PROJECT_MIRRORS if line not in existing]
+    if not missing:
+        return
+    text = "\n".join(existing)
+    if text:
+        text += "\n\n# Juicer Kit — generated mirrors\n" + "\n".join(missing) + "\n"
+    else:
+        text = "# Juicer Kit — generated mirrors\n" + "\n".join(missing) + "\n"
+    path.write_text(text)
 
 def copy_tree(src, dst):
     if dst.exists():
@@ -48,9 +83,7 @@ def list_adapters():
 def show_capabilities(target):
     p = adapter_dir(target) / "adapter.yaml"
     if not p.exists():
-        print(f"Unknown adapter: {target}")
-        print("Available:", ", ".join(list_adapters()))
-        return
+        fail(f"Unknown adapter: {target} (available: {', '.join(list_adapters()) or 'none'})")
     print(p.read_text())
 
 def sync(target):
@@ -86,13 +119,12 @@ def sync(target):
 
 def cmd_init(_):
     ensure_runtime()
-    for name in [".juicer/mission.md",".juicer/plan.md",".juicer/handoff.md",
-                 ".juicer/decisions.md",".juicer/learnings.md"]:
-        src = KIT / name
-        dst = ROOT / name
-        if not dst.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+    for name in ["AGENTS.md", ".juicer/mission.md", ".juicer/plan.md",
+                 ".juicer/handoff.md", ".juicer/decisions.md", ".juicer/learnings.md"]:
+        copy_missing(KIT / name, ROOT / name)
+    for tree in [".juicer/workflows", "agents", ".agents/skills"]:
+        copy_missing(KIT / tree, ROOT / tree)
+    ensure_project_gitignore()
     sync("all")
     print("Juicer Kit v2.1.0 initialized.")
 
@@ -125,8 +157,7 @@ def cmd_approve(_):
     ensure_runtime()
     state = read_state()
     if state.get("status") not in ("planning","blocked","ready"):
-        print(f"Cannot approve from status={state.get('status')}")
-        return
+        fail(f"Cannot approve from status={state.get('status')}")
     state.update({"status":"ready","approved":True})
     write_state(state)
     print("Mission plan approved. Implementation may proceed.")
@@ -135,8 +166,7 @@ def cmd_start(args):
     ensure_runtime()
     state = read_state()
     if not state.get("approved"):
-        print("Blocked: approve the plan before starting work.")
-        return
+        fail("Blocked: approve the plan before starting work.")
     state.update({"status":"executing","current_unit":args.unit})
     write_state(state)
     print(f"Active unit: {args.unit}")
@@ -156,14 +186,17 @@ def cmd_ship_approve(_):
     print("Production-impacting actions are approved.")
 
 def cmd_worker(args):
-    role = ROOT / "agents" / f"{args.worker}.md"
-    if not role.exists():
-        print(f"Unknown worker: {args.worker}")
-        return
-    print(f"Worker contract: {role}")
-    print(role.read_text())
-    print("\nRead .juicer/mission.md, .juicer/plan.md and .juicer/handoff.md before execution.")
-    print("This command intentionally does not call a model. The active harness executes the worker.")
+    if not WORKER_NAME.match(args.worker):
+        fail(f"Invalid worker name: {args.worker!r} (expected ^[a-z][a-z0-9-]*$)")
+    for base in (ROOT / "agents", KIT / "agents"):
+        role = base / f"{args.worker}.md"
+        if role.exists():
+            print(f"Worker contract: {role}")
+            print(role.read_text())
+            print("\nRead .juicer/mission.md, .juicer/plan.md and .juicer/handoff.md before execution.")
+            print("This command intentionally does not call a model. The active harness executes the worker.")
+            return
+    fail(f"Unknown worker: {args.worker} (searched {ROOT / 'agents'} and {KIT / 'agents'})")
 
 def cmd_finish(_):
     ensure_runtime()
