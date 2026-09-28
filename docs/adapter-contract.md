@@ -115,6 +115,64 @@ native subagent unavailable
 Juicer workflow breaks
 ```
 
+## Python contract
+
+Adapters are Python modules loaded by `bin/juicer`:
+
+```text
+adapters/
+├── _base.py            # shared base class and helpers
+└── <id>/
+    ├── adapter.py      # class Adapter (required)
+    ├── adapter.yaml    # declarative metadata (optional)
+    └── README.md       # adapter notes + sources consulted
+```
+
+`adapter.py` must expose a class named `Adapter` with an `id`
+(`^[a-z][a-z0-9-]*$`) and these methods:
+
+```python
+def capabilities(self) -> dict           # harness capability declaration
+def discover(self, ctx) -> dict          # available/version/major/notes; never raises
+def sync(self, ctx, dry_run=False) -> list  # list of Change (write/skip/delete)
+def install(self, ctx, dry_run=False) -> list  # sync() + marker file
+def invoke(self, ctx, worker, unit=None) -> str  # instructions; never calls a model
+```
+
+`ctx` is a `_base.Ctx`:
+
+```python
+Ctx(root=<project>, kit=<kit>, state_dir=".juicer",
+    skills_source=".agents/skills", agents_source="agents", options={})
+```
+
+Helpers from `_base`: `read_frontmatter`, `render_frontmatter`,
+`write_generated`, `resolve_source`, `iter_workers`, `ensure_entrypoint`,
+`mirror_skills`, `direct_instructions`.
+
+Rules:
+
+- read canonical sources via `resolve_source()` (project copy first, kit
+  fallback)
+- never write outside the project root, and never into `.juicer/`
+- `sync` only creates/updates harness mirrors; deletions belong to the
+  manifest-based cleanup (later phase)
+- `discover` must degrade gracefully: missing binary → `available: false`
+
+## Discovery
+
+`bin/juicer` discovers adapters from two roots, in this order:
+
+```text
+KIT/adapters/     # shipped with the kit
+ROOT/adapters/    # embedded by the project (wins on id collision)
+```
+
+A directory is an adapter when it contains `adapter.py`. Discovery
+imports the module, instantiates `Adapter`, and validates the `id` and
+the five methods. No `bin/juicer` edit is ever required to add or
+override an adapter.
+
 ## Adding a new harness
 
 To add Gemini CLI, for example:
@@ -122,8 +180,58 @@ To add Gemini CLI, for example:
 ```text
 adapters/
 └── gemini-cli/
-    ├── README.md
-    └── ...
+    ├── adapter.yaml
+    ├── adapter.py
+    └── README.md
+```
+
+```python
+# adapters/gemini-cli/adapter.py
+from _base import (
+    Adapter as BaseAdapter,
+    ensure_entrypoint,
+    iter_workers,
+    render_frontmatter,
+    write_generated,
+)
+
+
+class Adapter(BaseAdapter):
+    id = "gemini-cli"
+    executable = "gemini"
+    marker_dir = ".gemini"
+    agents_dir = ".gemini/agents"
+
+    def capabilities(self):
+        return {
+            "skills": True,
+            "subagents": True,
+            "parallel_agents": True,
+            "human_approval": True,
+            "persistent_context": True,
+        }
+
+    def sync(self, ctx, dry_run=False):
+        changes = [ensure_entrypoint(ctx, dry_run=dry_run)]
+        for worker in iter_workers(ctx):
+            fm = {"description": worker.frontmatter.get("description", worker.name)}
+            path = ctx.root / self.agents_dir / f"{worker.name}.md"
+            changes.append(write_generated(
+                path,
+                render_frontmatter(fm) + "\n" + worker.body.rstrip() + "\n",
+                dry_run=dry_run,
+            ))
+        return changes
+
+    def invoke(self, ctx, worker, unit=None):
+        native = f"native route: Gemini custom subagent {self.agents_dir}/{worker}.md"
+        return self._invoke(ctx, worker, unit, native=native)
+```
+
+```bash
+./bin/juicer adapters            # lists gemini-cli
+./bin/juicer capabilities gemini-cli
+./bin/juicer sync gemini-cli
 ```
 
 No change to:

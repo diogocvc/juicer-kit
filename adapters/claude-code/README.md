@@ -11,3 +11,18 @@ Canonical state remains `.juicer/`.
 Canonical skills remain `.agents/skills/`.
 
 Native Claude subagents are only an execution adapter.
+
+## Behavior
+
+- Subagents are generated into `.claude/agents/<name>.md`; the `name`
+  frontmatter key is required, and `role`/`access`/`tier`/`model` are
+  rejected.
+- Skills **are** mirrored into `.claude/skills` (Claude Code does not
+  read `.agents/skills` natively).
+- Entry point: `AGENTS.md` is read natively by Claude Code >= 2.1.277
+  when no `CLAUDE.md` exists; a user `CLAUDE.md` is never overwritten.
+
+## Sources consulted (2026-09-28)
+
+- https://code.claude.com/docs/en/sub-agents
+- https://code.claude.com/docs/en/skills

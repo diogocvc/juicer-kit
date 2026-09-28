@@ -36,3 +36,15 @@ The Juicer core does not depend on them.
 ```
 
 The adapter is intentionally thin: it should not duplicate the Juicer workflow state.
+
+## Behavior
+
+- Skills are **not** mirrored: Codex reads `.agents/skills` natively.
+- Entry point: `AGENTS.md` is native to Codex.
+- Custom agents are TOML files under `.codex/agents/`.
+
+## Sources consulted (2026-09-28)
+
+- https://developers.openai.com/codex/skills
+- https://developers.openai.com/codex/subagents
+- https://developers.openai.com/codex/guides/agents-md
