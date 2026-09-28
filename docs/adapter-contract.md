@@ -231,6 +231,29 @@ Rules:
   manifest-based cleanup (later phase)
 - `discover` must degrade gracefully: missing binary → `available: false`
 
+## adapter.yaml
+
+Optional declarative metadata next to `adapter.py`. Must be a valid
+YAML mapping with this schema:
+
+```yaml
+id: opencode                 # must equal Adapter.id and the directory name
+contract_version: 1
+capabilities:                # must equal Adapter.capabilities()
+  skills: true
+  subagents: true
+  parallel_agents: true
+  human_approval: true
+  persistent_context: true
+canonical_state: .juicer
+canonical_skills: .agents/skills
+canonical_agents: agents
+```
+
+`tests/test_adapters.py` parses every kit `adapter.yaml` with PyYAML and
+fails CI when it is invalid YAML or its `capabilities` drift from the
+Python `capabilities()` output.
+
 ## Discovery
 
 `bin/juicer` discovers adapters from two roots, in this order:

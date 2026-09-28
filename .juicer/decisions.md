@@ -92,3 +92,31 @@ reviewable, matching the documented lifecycle in GUIDE/architecture.
 Existing sessions mid-workflow keep the same commands; only previously illegal
 jumps now fail. Human control rule unchanged: no command infers approval, and
 state must be changed through gates, never by editing `.juicer/state.json`.
+
+## 2026-09-28 — CI gates and adapter.yaml schema
+
+**Decision:**  
+CI (`.github/workflows/ci.yml`) runs pytest on Python 3.8 and 3.12 plus a
+sync job that runs `juicer sync all` followed by `juicer sync all --check`
+(idempotency gate). All five `adapters/*/adapter.yaml` files were rewritten
+as valid YAML with schema `id / contract_version / capabilities /
+canonical_*`; a test parses them with PyYAML and fails on capability drift
+between yaml and `capabilities()`. The one test needing `tomllib` (3.11+)
+skips on older interpreters.
+
+**Why:**  
+The shipped adapter.yaml files were not parseable YAML (bad indentation),
+and nothing verified they matched the Python contract. Generated harness
+mirrors are gitignored, so a plain `--check` on a clean checkout always
+fails; write-then-check is the enforceable invariant (deterministic
+generation) while pytest covers fresh-install drift.
+
+**Alternatives considered:**  
+- Commit generated mirrors just to make `--check` pass on checkout:
+  rejected, doubles repo noise and creates two sources of truth.  
+- CI on 3.12 only: rejected, the documented runtime floor is Python 3.8.
+
+**Impact:**  
+Adding an adapter without a valid yaml (or with drifting capabilities) now
+breaks CI. `tomllib`-based assertions run only on Python 3.11+; everything
+else runs on the full matrix.

@@ -1,6 +1,12 @@
 import subprocess
-import tomllib
 from pathlib import Path
+
+import pytest
+
+try:
+    import tomllib
+except ImportError:  # Python < 3.11
+    tomllib = None
 
 KIT = Path(__file__).resolve().parents[1]
 CLI = KIT / "bin" / "juicer"
@@ -114,6 +120,7 @@ def test_cursor_readonly_mapping(tmp_path):
     assert_no_forbidden(tmp_path / ".cursor" / "agents" / "coder.md")
 
 
+@pytest.mark.skipif(tomllib is None, reason="tomllib requires Python 3.11+")
 def test_codex_toml_uses_documented_keys_only(tmp_path):
     assert run(tmp_path, "sync", "codex").returncode == 0
 
