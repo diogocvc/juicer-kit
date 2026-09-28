@@ -1,5 +1,7 @@
 # Installation
 
+Requires Python 3.8 or newer (CI runs the test suite on 3.8 and 3.12).
+
 ## From the repository
 
 Copy Juicer Kit into your project and run:

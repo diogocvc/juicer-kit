@@ -1,10 +1,10 @@
-# Juicer Kit v2.1 — Complete Guide
+# Juicer Kit v2.2 — Complete Guide
 
 > A harness-agnostic operating system for AI-native software development.
 
 ## 1. Introduction
 
-Juicer Kit v2.1 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
+Juicer Kit v2.2 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
 
 The central principle is: **the user owns the mission; agents execute work inside it.**
 
@@ -164,7 +164,7 @@ Workers are first-class and can be invoked directly. Native orchestration is opt
 
 Canonical skills live under `.agents/skills/`.
 
-v2.1 includes:
+v2.2 includes:
 
 ```text
 mission-control
@@ -246,9 +246,11 @@ Can use its native agent environment or an external ACP agent. Juicer state rema
 ./bin/juicer capabilities codex
 ./bin/juicer worker reviewer
 ./bin/juicer sync codex
+./bin/juicer install codex
+./bin/juicer invoke codex reviewer --unit UNIT-001
 ```
 
-The CLI does not call an LLM. It manages deterministic state while the active harness executes AI work.
+The CLI does not call an LLM. It manages deterministic state while the active harness executes AI work. Gate commands validate the workflow state first and exit 1 on an illegal transition; `juicer status` lists the commands available in the current state.
 
 ## 13. Core workflows
 
@@ -445,6 +447,7 @@ Create:
 
 ```text
 adapters/my-harness/
+├── adapter.py
 ├── adapter.yaml
 └── README.md
 ```
@@ -474,7 +477,7 @@ core → Cursor
 v2 replaces the previous OpenCode-centered architecture.
 
 1. Back up the project.
-2. Install v2.1.
+2. Install v2.2.
 3. Convert active backlog items into `.juicer/plan.md`.
 4. Move durable decisions into `.juicer/decisions.md`.
 5. Move reusable knowledge into `.juicer/learnings.md`.

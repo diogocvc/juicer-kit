@@ -1,4 +1,4 @@
-# Juicer Kit v2.1.0
+# Juicer Kit v2.2.0
 
 **A harness-agnostic operating system for AI-native software development.**
 
@@ -235,3 +235,4 @@ MIT.
 - Installation: `docs/installation.md`
 - Worker Protocol: `docs/worker-protocol.md`
 - Migration from v1: `docs/migration-v1.md`
+- Changelog: `CHANGELOG.md`

@@ -228,7 +228,7 @@ Rules:
   fallback)
 - never write outside the project root, and never into `.juicer/`
 - `sync` only creates/updates harness mirrors; deletions belong to the
-  manifest-based cleanup (later phase)
+  manifest-based cleanup (see *Sync safety and the manifest* above)
 - `discover` must degrade gracefully: missing binary → `available: false`
 
 ## adapter.yaml

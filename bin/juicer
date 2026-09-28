@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Juicer Kit v2.1 CLI. Dependency-free project workflow controller."""
+"""Juicer Kit v2.2 CLI. Dependency-free project workflow controller."""
 
 from __future__ import annotations
 import argparse, importlib.util, json, os, re, shutil, sys
@@ -28,7 +28,7 @@ def now():
 
 def read_state():
     if not STATE.exists():
-        return {"schema":1,"kit_version":"2.1.0","status":"uninitialized"}
+        return {"schema":1,"kit_version":"2.2.0","status":"uninitialized"}
     return json.loads(STATE.read_text())
 
 def write_state(state):
@@ -45,7 +45,7 @@ def ensure_mission():
 def ensure_runtime():
     (ROOT / ".juicer").mkdir(exist_ok=True)
     if not STATE.exists():
-        write_state({"schema":1,"kit_version":"2.1.0","status":"idle","mission_id":None,
+        write_state({"schema":1,"kit_version":"2.2.0","status":"idle","mission_id":None,
                      "current_unit":None,"approved":False,"ship_approved":False})
     ensure_mission()
 
@@ -331,7 +331,7 @@ def cmd_init(_):
         copy_missing(KIT / tree, ROOT / tree)
     ensure_project_gitignore()
     sync("all")
-    print("Juicer Kit v2.1.0 initialized.")
+    print("Juicer Kit v2.2.0 initialized.")
 
 def cmd_status(_):
     ensure_runtime()
