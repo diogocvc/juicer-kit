@@ -1,0 +1,33 @@
+name: juicer-kit
+version: 2.1.0
+architecture: harness-agnostic
+state_dir: .juicer
+skills_source: .agents/skills
+agent_contract_source: agents
+universal_entrypoint: AGENTS.md
+human_control: required
+
+adapter_contract:
+  version: 1
+  required_methods:
+    - discover
+    - install
+    - sync
+    - invoke
+    - capabilities
+
+supported_adapters:
+  - codex
+  - opencode
+  - claude-code
+  - cursor
+  - zed
+
+principles:
+  - repository-is-source-of-truth
+  - human-in-the-loop
+  - direct-workers
+  - portable-skills
+  - explicit-checkpoints
+  - verification-before-completion
+  - adapters-not-core

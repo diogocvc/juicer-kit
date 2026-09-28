@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Juicer Kit v2.1 CLI. Dependency-free project workflow controller."""
+
+from __future__ import annotations
+import argparse, json, os, shutil
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path.cwd()
+KIT = Path(__file__).resolve().parents[1]
+STATE = ROOT / ".juicer" / "state.json"
+MISSION = ROOT / ".juicer" / "mission.md"
+PLAN = ROOT / ".juicer" / "plan.md"
+HANDOFF = ROOT / ".juicer" / "handoff.md"
+SOURCE_SKILLS = KIT / ".agents" / "skills"
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+def read_state():
+    if not STATE.exists():
+        return {"schema":1,"kit_version":"2.1.0","status":"uninitialized"}
+    return json.loads(STATE.read_text())
+
+def write_state(state):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    state["updated_at"] = now()
+    STATE.write_text(json.dumps(state, indent=2) + "\n")
+
+def ensure_runtime():
+    (ROOT / ".juicer").mkdir(exist_ok=True)
+    if not STATE.exists():
+        write_state({"schema":1,"kit_version":"2.1.0","status":"idle","mission_id":None,
+                     "current_unit":None,"approved":False,"ship_approved":False})
+
+def copy_tree(src, dst):
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+def adapter_dir(target):
+    return KIT / "adapters" / target
+
+def list_adapters():
+    base = KIT / "adapters"
+    return sorted(p.name for p in base.iterdir() if p.is_dir() and (p / "adapter.yaml").exists())
+
+def show_capabilities(target):
+    p = adapter_dir(target) / "adapter.yaml"
+    if not p.exists():
+        print(f"Unknown adapter: {target}")
+        print("Available:", ", ".join(list_adapters()))
+        return
+    print(p.read_text())
+
+def sync(target):
+    ensure_runtime()
+    if target in ("all","codex"):
+        # Codex consumes the universal AGENTS.md and .agents/skills directly.
+        # Keep the canonical tree untouched; install only a small adapter marker.
+        marker = ROOT / ".codex"
+        marker.mkdir(exist_ok=True)
+        (marker / "juicer-kit.md").write_text(
+            (KIT / "adapters" / "codex" / "README.md").read_text()
+        )
+        if not (ROOT / "AGENTS.md").exists():
+            shutil.copy2(KIT / "AGENTS.md", ROOT / "AGENTS.md")
+    if target in ("all","opencode"):
+        copy_tree(SOURCE_SKILLS, ROOT / ".opencode" / "skills")
+        src_agents = KIT / "agents"
+        dst = ROOT / ".opencode" / "agents"
+        if dst.exists(): shutil.rmtree(dst)
+        shutil.copytree(src_agents, dst)
+    if target in ("all","claude-code"):
+        copy_tree(SOURCE_SKILLS, ROOT / ".claude" / "skills")
+        src_agents = KIT / "agents"
+        dst = ROOT / ".claude" / "agents"
+        if dst.exists(): shutil.rmtree(dst)
+        shutil.copytree(src_agents, dst)
+    if target in ("all","cursor"):
+        copy_tree(SOURCE_SKILLS, ROOT / ".cursor" / "skills")
+        guide = ROOT / ".cursor" / "juicer-kit.md"
+        guide.parent.mkdir(parents=True, exist_ok=True)
+        guide.write_text((KIT / "adapters" / "cursor" / "README.md").read_text())
+    print(f"synced: {target}")
+
+def cmd_init(_):
+    ensure_runtime()
+    for name in [".juicer/mission.md",".juicer/plan.md",".juicer/handoff.md",
+                 ".juicer/decisions.md",".juicer/learnings.md"]:
+        src = KIT / name
+        dst = ROOT / name
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+    sync("all")
+    print("Juicer Kit v2.1.0 initialized.")
+
+def cmd_status(_):
+    ensure_runtime()
+    s = read_state()
+    print(json.dumps(s, indent=2))
+    if MISSION.exists():
+        print("\n--- mission ---")
+        print(MISSION.read_text()[:3000])
+
+def cmd_mission(args):
+    ensure_runtime()
+    state = read_state()
+    state.update({"status":"planning","mission_id":datetime.now().strftime("%Y%m%d-%H%M%S"),
+                  "current_unit":None,"approved":False,"ship_approved":False})
+    write_state(state)
+    text = MISSION.read_text()
+    marker = "## Objective"
+    before, _, after = text.partition(marker)
+    after_lines = after.splitlines()
+    if after_lines:
+        after_lines = after_lines[1:]
+    new = before + marker + "\n\n" + args.objective + "\n\n" + "\n".join(after_lines)
+    MISSION.write_text(new)
+    print("Mission created. Planning gate is pending.")
+    print("Next: update .juicer/plan.md, then run `juicer approve`.")
+
+def cmd_approve(_):
+    ensure_runtime()
+    state = read_state()
+    if state.get("status") not in ("planning","blocked","ready"):
+        print(f"Cannot approve from status={state.get('status')}")
+        return
+    state.update({"status":"ready","approved":True})
+    write_state(state)
+    print("Mission plan approved. Implementation may proceed.")
+
+def cmd_start(args):
+    ensure_runtime()
+    state = read_state()
+    if not state.get("approved"):
+        print("Blocked: approve the plan before starting work.")
+        return
+    state.update({"status":"executing","current_unit":args.unit})
+    write_state(state)
+    print(f"Active unit: {args.unit}")
+
+def cmd_checkpoint(args):
+    ensure_runtime()
+    state = read_state()
+    state["status"] = args.status
+    write_state(state)
+    print(f"Checkpoint saved: {args.status}")
+
+def cmd_ship_approve(_):
+    ensure_runtime()
+    state = read_state()
+    state["ship_approved"] = True
+    write_state(state)
+    print("Production-impacting actions are approved.")
+
+def cmd_worker(args):
+    role = ROOT / "agents" / f"{args.worker}.md"
+    if not role.exists():
+        print(f"Unknown worker: {args.worker}")
+        return
+    print(f"Worker contract: {role}")
+    print(role.read_text())
+    print("\nRead .juicer/mission.md, .juicer/plan.md and .juicer/handoff.md before execution.")
+    print("This command intentionally does not call a model. The active harness executes the worker.")
+
+def cmd_finish(_):
+    ensure_runtime()
+    state = read_state()
+    state.update({"status":"done","current_unit":None})
+    write_state(state)
+    print("Mission marked done.")
+
+def main():
+    p = argparse.ArgumentParser(prog="juicer")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    for name, fn in [("init",cmd_init),("status",cmd_status),("approve",cmd_approve),
+                     ("ship-approve",cmd_ship_approve),("finish",cmd_finish)]:
+        sub.add_parser(name).set_defaults(fn=fn)
+    m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
+    st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)
+    cp = sub.add_parser("checkpoint"); cp.add_argument("status", choices=["executing","blocked","ready","done"]); cp.set_defaults(fn=cmd_checkpoint)
+    wk = sub.add_parser("worker"); wk.add_argument("worker"); wk.set_defaults(fn=cmd_worker)
+    sy = sub.add_parser("sync")
+    sy.add_argument("target", choices=["all","codex","opencode","claude-code","cursor"])
+    sy.set_defaults(fn=lambda a: sync(a.target))
+    la = sub.add_parser("adapters")
+    la.set_defaults(fn=lambda a: print("\n".join(list_adapters())))
+    ca = sub.add_parser("capabilities")
+    ca.add_argument("target")
+    ca.set_defaults(fn=lambda a: show_capabilities(a.target))
+    args = p.parse_args()
+    args.fn(args)
+
+if __name__ == "__main__":
+    main()

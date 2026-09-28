@@ -1,0 +1,27 @@
+import json
+import subprocess
+from pathlib import Path
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+CLI = ROOT / "bin" / "juicer"
+
+def run(*args):
+    return subprocess.run([str(CLI), *args], cwd=ROOT, text=True, capture_output=True)
+
+def test_version_files():
+    assert (ROOT / "VERSION").read_text().strip() == "2.1.0"
+    assert (ROOT / "kit.yaml").exists()
+
+def test_roles_exist():
+    expected = ["finder","analyst","architect","planner","coder","reviewer","tester","security"]
+    for role in expected:
+        assert (ROOT / "agents" / f"{role}.md").exists()
+
+def test_skills_have_frontmatter():
+    for p in (ROOT / ".agents" / "skills").glob("*/SKILL.md"):
+        assert p.read_text().startswith("---")
+
+def test_cli_help():
+    r = run("--help")
+    assert r.returncode == 0

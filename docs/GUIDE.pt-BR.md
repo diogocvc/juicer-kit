@@ -1,14 +1,14 @@
-# Juicer Kit v2.1 — Complete Guide
+# Juicer Kit v2.1 — Guia Completo
 
-> A harness-agnostic operating system for AI-native software development.
+> Um sistema operacional agnóstico de harness para desenvolvimento de software AI-native.
 
-## 1. Introduction
+## 1. Introdução
 
 Juicer Kit v2.1 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
 
-The central principle is: **the user owns the mission; agents execute work inside it.**
+O princípio central é: **o usuário é dono da mission; os agentes executam o trabalho dentro dela.**
 
-## 2. Architecture
+## 2. Arquitetura
 
 ```text
                          HUMAN
@@ -33,11 +33,11 @@ The central principle is: **the user owns the mission; agents execute work insid
                        MODEL(S)
 ```
 
-The portable core is `.juicer/`, `agents/`, `.agents/skills/`, `AGENTS.md`, and the workflow definitions. Adapters translate this core into harness-specific execution mechanisms.
+O core portátil é `.juicer/`, `agents/`, `.agents/skills/`, `AGENTS.md`, and the workflow definitions. Adapters translate this core into harness-specific execution mechanisms.
 
 Adding a future tool such as Gemini CLI should normally mean adding `adapters/gemini-cli/` without changing the core workflow.
 
-## 3. Repository structure
+## 3. Estrutura do repositório
 
 ```text
 juicer-kit/
@@ -63,20 +63,20 @@ juicer-kit/
 
 `.juicer/` is persistent workflow state. `agents/` contains canonical worker contracts. `.agents/skills/` contains portable skills. `adapters/` contains harness integrations. `AGENTS.md` is the universal project-level agent entrypoint. `bin/juicer` manages deterministic state.
 
-## 4. Prerequisites
+## 4. Pré-requisitos
 
-Required:
+Obrigatório:
 
 - Git project
 - terminal
 - an AI development harness capable of reading project instructions and/or executing prompts
 - Python 3 for the CLI
 
-The architecture is designed to support Codex, OpenCode, Claude Code, Cursor, Zed, and future tools.
+A arquitetura foi desenhada para suportar Codex, OpenCode, Claude Code, Cursor, Zed, and future tools.
 
-Models are not hardcoded into worker contracts. Model/provider selection belongs to the harness layer.
+Modelos não são definidos nos contratos dos workers. A seleção de modelo/provider pertence à camada do harness.
 
-## 5. Installation
+## 5. Instalação
 
 ```bash
 ./bin/juicer init
@@ -88,7 +88,7 @@ The initializer creates the `.juicer/` state and synchronizes supported adapters
 
 The canonical portable skill tree is `.agents/skills/`.
 
-## 6. Mission model
+## 6. Modelo de Mission
 
 A mission contains:
 
@@ -119,7 +119,7 @@ executing
 
 A chat session is temporary. Mission state is persistent. A fresh session should read `.juicer/mission.md`, `.juicer/plan.md`, and `.juicer/handoff.md`.
 
-## 7. Human control and approval gates
+## 7. Controle humano e gates de aprovação
 
 Juicer uses four explicit gates:
 
@@ -153,7 +153,7 @@ Agents must never infer approval.
 | `reviewer` | Code review |
 | `tester` | Tests and verification |
 | `debugger` | Root-cause investigation |
-| `security` | Security audit |
+| `security` | Segurança audit |
 | `documenter` | Technical documentation |
 | `devops` | Infrastructure and release |
 | `optimizer` | Evidence-based performance work |
@@ -178,7 +178,7 @@ ship
 
 Skills are reusable playbooks and should remain harness-agnostic.
 
-## 10. Adapter contract
+## 10. Contrato de Adapter
 
 The contract is documented in `docs/adapter-contract.md`.
 
@@ -206,7 +206,7 @@ Capabilities describe the harness; they do not redefine the Juicer workflow.
 
 If native subagents are unavailable, an adapter should fall back to direct worker execution rather than breaking the core.
 
-## 11. Current adapters
+## 11. Adapters atuais
 
 ### Codex
 
@@ -250,7 +250,7 @@ Can use its native agent environment or an external ACP agent. Juicer state rema
 
 The CLI does not call an LLM. It manages deterministic state while the active harness executes AI work.
 
-## 13. Core workflows
+## 13. Workflows principais
 
 ### Feature
 
@@ -286,7 +286,7 @@ reviewer → tester → security (when applicable) → devops → HUMAN APPROVAL
 
 Workflows are control structures, not mandatory autonomous swarms.
 
-## 14. Multiple harnesses
+## 14. Múltiplos harnesses
 
 A mission can start in OpenCode:
 
@@ -307,16 +307,16 @@ AGENTS.md
 The invariant is:
 
 ```text
-same mission
-same plan
-same acceptance criteria
-same worker contracts
-same state
+mesma mission
+mesmo plano
+mesmos critérios de aceitação
+mesmos contratos de workers
+mesmo estado
 ```
 
-Harness and model are replaceable execution layers.
+Harness e modelo são camadas de execução substituíveis.
 
-## 15. Context and token optimization
+## 15. Contexto e otimização de tokens
 
 Prefer:
 
@@ -338,7 +338,7 @@ Before ending a long session, update `.juicer/handoff.md` with what changed, wha
 
 Put reusable discoveries in `.juicer/learnings.md`.
 
-## 16. Security
+## 16. Segurança
 
 Use `security` for authentication, authorization, payments, personal data, secrets, public APIs, external integrations, infrastructure, and permission changes.
 
@@ -399,7 +399,7 @@ Inspect `.juicer/plan.md` and resolve the gate. Do not force a status change.
 
 Tests are evidence, not the definition of completion. Compare the implementation with the unit's acceptance criteria.
 
-## 18. Practical examples
+## 18. Exemplos práticos
 
 ### New feature
 
@@ -429,7 +429,7 @@ baseline → profile → bottleneck → change → benchmark → compare
 
 Never optimize only from intuition.
 
-## 19. Extending Juicer Kit
+## 19. Estendendo o Juicer Kit
 
 ### Add a worker
 
@@ -469,7 +469,7 @@ core → Claude
 core → Cursor
 ```
 
-## 20. Migration from v1
+## 20. Migração da v1
 
 v2 replaces the previous OpenCode-centered architecture.
 
@@ -487,18 +487,18 @@ v2 replaces the previous OpenCode-centered architecture.
 
 The v1 backlog is not the new source of truth. `.juicer/` is.
 
-## 21. Contribution rules
+## 21. Regras de contribuição
 
-1. Repository is the source of truth.
-2. Workers are independent.
-3. Skills are portable.
-4. Adapters are thin.
-5. Models are replaceable.
-6. Harnesses are replaceable.
-7. The user controls approval gates.
-8. Completion requires evidence.
-9. Context stays small and purposeful.
-10. New tools normally require a new adapter, not a new workflow architecture.
+1. O repositório é a fonte de verdade.
+2. Workers são independentes.
+3. Skills são portáveis.
+4. Adapters são finos.
+5. Modelos são substituíveis.
+6. Harnesses são substituíveis.
+7. O usuário controla os gates de aprovação.
+8. Conclusão exige evidências.
+9. O contexto permanece pequeno e intencional.
+10. Novas ferramentas normalmente exigem um novo adapter, não uma nova arquitetura de workflow.
 
 ## Final mental model
 
@@ -525,4 +525,4 @@ The v1 backlog is not the new source of truth. `.juicer/` is.
                  MODEL(S)
 ```
 
-**Juicer is the workflow. Workers are the team. Skills are reusable capabilities. Adapters are translations. Models are replaceable engines. The user remains in control.**
+**Juicer é o workflow. Workers são o time. Skills são capacidades reutilizáveis. Adapters são traduções. Modelos são motores substituíveis. O usuário continua no controle.**

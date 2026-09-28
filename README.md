@@ -1,453 +1,237 @@
-# Juicer Kit
+# Juicer Kit v2.1.0
 
-A specialized agent kit for OpenCode, inspired by Mission Kit and optimized for workflows with human autonomy, security, and quality.
+**A harness-agnostic operating system for AI-native software development.**
 
-## 🎯 Objective
+Juicer is built around a portable core plus thin harness adapters. Adding a new AI development tool should require an adapter, not a rewrite of the workflow.
 
-Provide a system of versionable agents that you can reuse across multiple projects, maintaining:
+Juicer Kit provides a portable workflow for planning, executing, reviewing, testing and shipping software with AI agents while keeping the human in control.
 
-- **Autonomy**: You decide when to call each agent.
-- **Security**: Review and audit agents mandatory for critical features.
-- **Quality**: Defined pipelines with review and tests on every code change.
-- **Reusability**: Editor-agnostic structure (VS Code, Zed, etc.).
+The kit is deliberately independent from a specific:
 
-## 📁 Structure
+- CLI
+- IDE
+- agent harness
+- model/provider
+- MCP configuration
+- session or chat history
 
+The repository is the source of truth. Agent sessions are replaceable workers.
+
+## Core principles
+
+1. **Human control is the default**
+   - Plans require approval before execution.
+   - High-impact actions require explicit approval.
+   - The user can stop, redirect, skip or delegate any unit of work.
+
+2. **State lives in the repository**
+   - Mission state, plan, decisions, handoffs and learnings are persisted under `.juicer/`.
+   - A new session can resume without reconstructing the whole conversation.
+
+3. **Skills are portable**
+   - Canonical skills live in `.agents/skills/`.
+   - Adapters can mirror them into `.opencode/skills/`, `.claude/skills/` and `.cursor/skills/`.
+
+4. **Agents are workers, not the operating system**
+   - Role definitions describe capabilities and responsibilities.
+   - The workflow does not depend on one orchestrator being able to spawn another agent.
+
+5. **Direct workers are first-class**
+   - Finder, analyst, architect, planner, coder, reviewer, tester, security, debugger, fixer, documenter and DevOps workers can be invoked independently.
+   - Native harness delegation is optional.
+
+6. **Every execution unit is checkable**
+   - Inputs
+   - objective
+   - acceptance criteria
+   - files/scope
+   - verification
+   - result
+   - next action
+
+## Architecture
+
+```text
+                         HUMAN
+                           │
+                    Mission / Decision
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │  .juicer/    │
+                    │ source state │
+                    └──────┬───────┘
+                           │
+                 ┌─────────┴─────────┐
+                 │                   │
+          Portable skills       Worker roles
+          .agents/skills/       agents/*.md
+                 │                   │
+        ┌────────┼─────────┐         │
+        ▼        ▼         ▼         ▼
+    OpenCode   Claude    Cursor     Zed
+      adapter  adapter   adapter   adapter
+        │        │         │         │
+        └────────┴─────────┴─────────┘
+                           │
+                           ▼
+                       MODEL(S)
 ```
-juicer-kit/
-├── README.md                 # This documentation
-├── backlog/
-│   ├── backlog.md            # Pending tasks
-│   ├── in-progress.md        # Tasks in progress
-│   └── done/                 # Completed tasks
-├── .opencode/
-│   └── agents/
-│       ├── core/
-│       │   └── orchestrator.md       # Master coordinator & PO
-│       ├── research/
-│       │   ├── finder.md             # Code explorer
-│       │   ├── analyst.md            # Code analyst
-│       │   └── researcher.md         # External research
-│       ├── planning/
-│       │   ├── architect.md          # Solution architect
-│       │   └── planner.md            # Task planner
-│       ├── implementation/
-│       │   ├── coder.md              # Main developer
-│       │   ├── editor.md             # Existing code editor
-│       │   ├── fixer.md              # Bug fixer
-│       │   └── refactorer.md         # Refactoring specialist
-│       ├── quality/
-│       │   ├── reviewer.md           # Code reviewer
-│       │   ├── tester.md             # Test engineer
-│       │   ├── debugger.md           # Bug investigator
-│       │   └── security.md           # Security auditor
-│       ├── documentation/
-│       │   ├── documenter.md         # Technical writer
-│       │   └── commenter.md          # Comments & JSDoc
-│       └── infrastructure/
-│           ├── devops.md             # DevOps engineer
-│           └── optimizer.md          # Performance optimizer
-├── skills/                   # Reusable skills
-│   ├── tdd-workflow.md
-│   ├── security-review.md
-│   ├── prd-template.md
-│   ├── api-design.md
-│   ├── code-review-checklist.md
-│   └── context-management.md
-└── commands/                 # Slash commands
-    ├── add-backlog.md
-    ├── start.md
-    ├── edit-backlog.md
-    ├── remove-backlog.md
-    ├── plan.md
-    ├── review.md
-    ├── security-audit.md
-    ├── test.md
-    ├── document.md
-    └── compact.md
-```
 
-## 🚀 Installation
+## Install
 
-### Option 1: Copy the `.opencode/` folder
-
-In your new project:
+Copy the repository into a project, or use the included installer:
 
 ```bash
-cp -r ~/path/to/juicer-kit/.opencode ./
-cp -r ~/path/to/juicer-kit/backlog ./
-cp -r ~/path/to/juicer-kit/skills ./
-cp -r ~/path/to/juicer-kit/commands ./
+./bin/juicer init
 ```
 
-### Option 2: Use Git submodule
+Then:
 
 ```bash
-# In your new project
-git submodule add https://github.com/diogocvc/juicer-kit.git .opencode
+./bin/juicer status
+./bin/juicer mission "Build feature X"
 ```
 
-To update the kit in the future:
+The installer creates the runtime state and mirrors portable skills into supported harness locations.
+
+## Primary workflow
+
+```text
+MISSION
+  ↓
+DISCOVER
+  ↓
+PLAN
+  ↓
+HUMAN APPROVAL
+  ↓
+EXECUTE ONE UNIT
+  ↓
+VERIFY
+  ↓
+CHECKPOINT
+  ↓
+NEXT UNIT
+  ↓
+REVIEW
+  ↓
+TEST
+  ↓
+SHIP APPROVAL
+```
+
+The orchestrator is intentionally **not required** for this flow.
+
+## Roles
+
+| Role | Responsibility |
+|---|---|
+| finder | Fast repository reconnaissance |
+| analyst | Deep technical analysis |
+| researcher | External technical research |
+| architect | Solution architecture |
+| planner | Atomic implementation plan |
+| coder | New implementation |
+| editor | Safe modification of existing code |
+| fixer | Minimal bug correction |
+| refactorer | Structural improvement without behavior change |
+| reviewer | Code quality and regression review |
+| tester | Test design and execution |
+| debugger | Unknown-cause investigation |
+| security | Security review |
+| documenter | Documentation |
+| devops | CI/CD, infrastructure and release |
+| optimizer | Performance investigation |
+
+## Direct subagent usage
+
+The kit does not assume a universal delegation API.
+
+Where the harness supports native subagents, use its native mechanism. Where it does not, run the worker directly with the same role definition and attach the current `.juicer/` state.
+
+Examples:
+
+```text
+OpenCode: @finder ...
+Claude Code: invoke the finder agent
+Cursor: /create-subagent or run the corresponding skill/mode
+Zed: use a native or external agent path and provide the worker prompt
+```
+
+The important invariant is not the invocation syntax. The invariant is the **role contract + repository state + acceptance criteria**.
+
+## Safety gates
+
+The kit has four mandatory gates:
+
+### Gate 1 — Plan
+No implementation starts before the current mission plan is approved.
+
+### Gate 2 — Change
+Every implementation unit records its scope and acceptance criteria.
+
+### Gate 3 — Verify
+Implementation is not considered complete until the relevant verification has been executed or an explicit exception is recorded.
+
+### Gate 4 — Ship
+Production-impacting changes require human confirmation.
+
+## Context economy
+
+Workers should not read the entire repository or entire chat history by default.
+
+They should:
+
+1. Read `.juicer/mission.md`.
+2. Read the active plan unit.
+3. Read only the relevant project instructions.
+4. Inspect the smallest useful code scope.
+5. Write a concise checkpoint.
+6. Leave reusable learning in `.juicer/learnings.md`.
+
+This makes long-running work resumable and reduces token waste.
+
+## Compatibility
+
+Current adapters:
+
+- Codex
+- OpenCode
+- Claude Code
+- Cursor
+- Zed
+
+These are examples, not architectural dependencies. A future Gemini CLI, Aider, Windsurf, Kiro or custom harness should be added as an adapter under `adapters/<name>/` without changing `.juicer/`, `agents/`, `.agents/skills/` or the workflows.
+
+OpenCode currently supports project skills under `.opencode/skills` as well as Claude-compatible and `.agents/skills` locations. Claude Code supports filesystem skills under `.claude/skills`. Cursor supports the Agent Skills standard and `.agents/skills`. Zed supports native skills/instructions and external ACP agents. The kit therefore treats the portable filesystem contract as primary and native harness configuration as an adapter. 
+
+## Versioning
+
+Juicer Kit v2 intentionally replaces the v1 architecture instead of incrementally extending it.
+
+Recommended project update:
 
 ```bash
-git submodule update --remote
+rm -rf .juicer .agents/skills
+cp -R juicer-kit-v2/.juicer .
+cp -R juicer-kit-v2/.agents .
+./juicer-kit-v2/bin/juicer init
 ```
 
-### Option 3: Symlink (local development)
+Review the generated adapter files before committing them.
 
-```bash
-# In your new project
-ln -s ~/path/to/juicer-kit/.opencode ./.opencode
-ln -s ~/path/to/juicer-kit/backlog ./backlog
-ln -s ~/path/to/juicer-kit/skills ./skills
-ln -s ~/path/to/juicer-kit/commands ./commands
-```
+## License
 
-## 🔧 Configuration
+MIT.
 
-### Supported Editors
 
-- **VS Code**: OpenCode extension or integrated terminal.
-- **Zed**: Via ACP (Agent Communication Protocol).
+## Documentation
 
-The agent structure works the same in both — OpenCode reads `.opencode/agents/` automatically.
-
-### AI Models
-
-The `model` field in each agent's frontmatter is **suggestive**. You can:
-
-- **Keep suggested models** (optimized by task type).
-- **Remove the `model` field** and use a globally configured model in OpenCode.
-- **Override in session** (e.g., `/model openai/gpt-5.2-high`).
-
-Example frontmatter:
-
-```md
----
-description: "Deep code analyst..."
-mode: "sub-agent"
-model: "anthropic/claude-sonnet-4.5-thinking-high"  # Suggestion only
-tools:
-  read: true
-  ...
----
-```
-
-### `AGENTS.md` in Your Project
-
-If your project already has an `AGENTS.md` (generated by `/init` or maintained manually), **there is no conflict**. The kit uses `.opencode/agents/`, which is isolated.
-
-You can keep your `AGENTS.md` for:
-
-- Specific business rules.
-- Project folder structure.
-- Commands and scripts.
-- Code conventions.
-
-Example:
-
-```md
-# Project Instructions
-
-## Overview
-
-This is a TypeScript application for tokenized real-world assets (RWA).
-
-## Project Structure
-
-- `src/` — Application code
-- `tests/` — Test suite
-- `docs/` — Documentation
-
-## Commands
-
-- `npm run dev` — Start development server
-- `npm run test` — Run tests
-- `npm run lint` — Run ESLint
-
-## Guidelines
-
-- Use TypeScript strict mode
-- Always write tests for new features
-- Never commit secrets or API keys
-- For auth features, always run @security audit
-
-## Agent Configuration
-
-Agents are loaded from `.opencode/agents/`. Do not modify agent files directly — use the juicer-kit repository for updates.
-```
-
-## 📖 How to Use
-
-### Start OpenCode
-
-**In VS Code**:
-
-```bash
-opencode serve
-```
-
-Or use the OpenCode extension (if available).
-
-**In Zed**:
-
-1. Start OpenCode: `opencode serve`
-2. Connect Zed via ACP (configure endpoint in Zed settings).
-
-### Invoke Agents
-
-In the OpenCode chat, use `@agent-name`:
-
-```
-@orchestrator Create a new feature for user authentication with JWT.
-```
-
-Or call specific agents:
-
-```
-@finder Map the project structure and find auth-related files.
-@architect Design a JWT-based authentication system with refresh tokens.
-@planner Break down the architecture into implementable tasks.
-@coder Implement task 1: Create the auth middleware.
-@reviewer Review the changes in src/auth/.
-@security Audit the auth implementation for OWASP compliance.
-@tester Write and run tests for the auth module.
-```
-
-### Managing Backlog
-
-#### Add a Task
-
-```
-/add-backlog Create user authentication with JWT
-
-or
-
-@backlog add Create user authentication with JWT
-```
-
-#### Show Backlog
-
-```
-@backlog show
-
-or
-
-/backlog
-```
-
-#### Start a Task
-
-```
-/start TASK-001
-```
-
-#### Edit a Task
-
-```
-/edit-backlog TASK-001
-```
-
-#### Remove a Task
-
-```
-/remove-backlog TASK-001
-```
-
-### Recommended Pipelines
-
-The `@orchestrator` already follows defined pipelines, but you can invoke them manually:
-
-#### New Feature
-
-```
-@finder → @analyst → @architect → @planner → @coder → @reviewer → @tester → @documenter
-```
-
-#### New Feature (with Security)
-
-```
-@finder → @analyst → @researcher → @architect → @planner → @coder → @reviewer → @security → @tester → @documenter
-```
-
-#### Bug Fix (Unknown Cause)
-
-```
-@finder → @debugger → @fixer → @reviewer → @tester
-```
-
-#### Bug Fix (Known Cause)
-
-```
-@finder → @fixer → @reviewer → @tester
-```
-
-#### Refactoring
-
-```
-@finder → @analyst → @refactorer → @reviewer → @tester
-```
-
-#### Performance Optimization
-
-```
-@finder → @analyst → @optimizer → @reviewer → @tester
-```
-
-#### Infrastructure Changes
-
-```
-@finder → @devops → @reviewer → @tester
-```
-
-### Slash Commands (if configured)
-
-If you copied the `commands/` folder to `.opencode/commands/`, you can use:
-
-```
-/add-backlog Create user authentication
-/start TASK-001
-/plan Design a new API endpoint for user profiles.
-/review Review all changes in the last commit.
-/security-audit Audit the authentication module.
-/test Run tests for the auth module.
-/document Create API documentation.
-/compact Summarize the current session.
-```
-
-### Skills (if configured)
-
-If you copied the `skills/` folder to `.opencode/skills/`, you can invoke:
-
-```
-@skill tdd-workflow Implement a new feature using TDD.
-@skill security-review Review code for OWASP Top 10 vulnerabilities.
-@skill prd-template Create a PRD for a new feature.
-@skill api-design Design a RESTful API.
-@skill code-review-checklist Review code with structured checklist.
-@skill context-management Optimize token usage.
-```
-
-## 🛡️ Security & Quality
-
-### Mandatory Rules
-
-- **Always** run `@reviewer` after code changes.
-- **Always** run `@tester` after implementation.
-- **Always** run `@security` on features with:
-  - Authentication or authorization.
-  - User data (PII).
-  - Secrets or API keys.
-  - Payments or financial transactions.
-  - External API integrations.
-
-### Quality Gates
-
-The `@orchestrator` enforces the following gates:
-
-1. **Planning approved** → Implementation.
-2. **Implementation complete** → Review.
-3. **Review approved** → Testing.
-4. **Tests passing** → Documentation.
-5. **Documentation complete** → Done.
-
-If you don't use `@orchestrator`, follow these gates manually.
-
-## 📝 Agents
-
-### Core
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@orchestrator` | Coordinates tasks, delegates to sub-agents, enforces pipelines, manages backlog. | Complex sessions with multiple steps. |
-
-### Research
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@finder` | Fast codebase scout, finds files and patterns. | First step of any task. |
-| `@analyst` | Deep code analysis, dependencies, risks, data flow. | After `@finder`, before planning. |
-| `@researcher` | External knowledge (docs, best practices, compliance). | When you need knowledge outside the code. |
-
-### Planning
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@architect` | Designs solutions, defines components, interfaces, patterns. | After analysis, before detailing tasks. |
-| `@planner` | Decomposes architecture into atomic tasks with acceptance criteria. | After architecture, before coding. |
-
-### Implementation
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@coder` | Creates new code from scratch. | Implement well-defined tasks. |
-| `@editor` | Modifies existing code safely. | Change existing code. |
-| `@fixer` | Fixes bugs with minimal changes. | Bug with known cause. |
-| `@refactorer` | Improves structure without changing behavior. | Clean, organize, or improve code. |
-
-### Quality
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@reviewer` | Quality review, best practices, issue identification. | After any code change (mandatory). |
-| `@tester` | Creates and runs unit, integration, and E2E tests. | After implementation and review (mandatory). |
-| `@debugger` | Investigates bugs with unknown cause. | Bug without clear cause. |
-| `@security` | Security audit, OWASP, sensitive data, auth. | Features with auth, user data, secrets, external APIs (mandatory). |
-
-### Documentation
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@documenter` | Creates technical documentation (README, API docs, guides). | After major features or API changes. |
-| `@commenter` | Adds inline comments and JSDoc/TSDoc. | After implementation, for readability. |
-
-### Infrastructure
-
-| Agent | Function | When to Use |
-|--------|--------|-------------|
-| `@devops` | CI/CD, Docker, deployment, infrastructure. | Infrastructure changes, deployment, automation. |
-| `@optimizer` | Performance, memory, efficiency optimization. | Performance optimization tasks. |
-
-## 🔄 Kit Updates
-
-### With Git Submodule
-
-```bash
-git submodule update --remote
-```
-
-### With Manual Copy
-
-1. Download the latest version of the kit repository.
-2. Replace the `.opencode/` folder in the project.
-3. Review agent changes (if any).
-
-### With Symlink
-
-If you use symlink, the kit is already automatically updated (point to the latest version).
-
-## 📚 Guia Completo
-
-Leia o [Guia Completo do Juicer Kit](docs/GUIDE.md) para instruções detalhadas sobre instalação, configuração, uso dos agentes, workflows, e boas práticas.
-
-## 📚 Additional Resources
-
-- [OpenCode Official Documentation](https://opencode.ai/docs)
-- [Hermes Multi-Agent System](https://github.com/1ilkhamov/opencode-hermes-multiagent)
-- [Vibe Agents](https://github.com/swan4er/vibe-agents)
-- [Everything OpenCode](https://libraries.io/npm/everything-opencode)
-- [Mission Kit](https://missionkit.io/) (inspiration)
-
-## 🤝 Contribution
-
-If you want to contribute with new agents, skills, or commands:
-
-1. Fork the kit repository.
-2. Create a branch for your feature.
-3. Add the agent to `.opencode/agents/<category>/`.
-4. Document in `README.md`.
-5. Submit a PR.
-
-## 📄 License
-
-MIT — use freely in your projects.
+- English: `docs/GUIDE.md`
+- Português: `docs/GUIDE.pt-BR.md`
+- Architecture: `docs/architecture.md`
+- Adapter Contract: `docs/adapter-contract.md`
+- Installation: `docs/installation.md`
+- Worker Protocol: `docs/worker-protocol.md`
+- Migration from v1: `docs/migration-v1.md`
