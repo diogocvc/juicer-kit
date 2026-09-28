@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.3.0 — 2026-09-28
+
+Security and coverage release over 2.2.0 (post-release audit). Three
+phases, one commit each.
+
+### Security
+
+- Project adapters are untrusted by default: `ROOT/adapters` loads only
+  with `--trust-project-adapters` or `JUICER_TRUST_PROJECT_ADAPTERS=1`.
+  Without trust, project `adapter.py` files are never imported (stderr
+  warning lists them) and targeting one fails with `untrusted project
+  code`; `juicer init` in an untrusted repository no longer executes
+  project code. Deduplicated by resolved path, so `ROOT == KIT` is silent.
+
+### Fixed
+
+- OpenCode legacy `permission:` map used the key `shell`, which no schema
+  reads; it now uses the V1 key `bash` (V1→V2 maps `bash` → `shell`), so
+  shell rules (`read-only deny`, `edit ask`) are applied again after
+  re-sync. Docs table and `test_frontmatter` corrected with it.
+- Corrupt `.juicer/state.json` exits 1 with `Invalid state file …` instead
+  of a Python traceback.
+
+### Changed
+
+- Ship gate is now verifiable: the `ship` skill, the release workflow and
+  `agents/devops.md` require `ship_approved: true` (via `juicer status`)
+  before production-impacting steps, with the release approval moved
+  before `devops`; README Gate 4 and GUIDE §7 document the
+  recorded-approval model. `finish` remains independent of ship approval.
+
+### Added
+
+- State-machine tests for blocked branches, idempotent gates,
+  `ship-approve` from blocked/done and unknown status rejection.
+- Adapter tests: `invoke` for all five harnesses, missing-binary
+  `discover`, drift check for every manifest-tracked adapter, Claude
+  provenance marker.
+- Invariants: all 16 workers share the operating contract and Output
+  block; ship-gate consumers mention `ship_approved`.
+- Trust tests: default skip + warning, flag and env opt-in, targeted
+  failure, `init` security regression (72 tests total).
+
 ## 2.2.0 — 2026-09-28
 
 Correction and hardening release over 2.1.0. Seven phases, one commit each.

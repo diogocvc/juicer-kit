@@ -1,10 +1,10 @@
-# Juicer Kit v2.2 — Guia Completo
+# Juicer Kit v2.3 — Guia Completo
 
 > Um sistema operacional agnóstico de harness para desenvolvimento de software AI-native.
 
 ## 1. Introdução
 
-Juicer Kit v2.2 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
+Juicer Kit v2.3 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
 
 O princípio central é: **o usuário é dono da mission; os agentes executam o trabalho dentro dela.**
 
@@ -170,7 +170,7 @@ Workers are first-class and can be invoked directly. Native orchestration is opt
 
 Canonical skills live under `.agents/skills/`.
 
-v2.2 includes:
+v2.3 includes:
 
 ```text
 mission-control
@@ -488,7 +488,7 @@ core → Cursor
 v2 replaces the previous OpenCode-centered architecture.
 
 1. Back up the project.
-2. Install v2.2.
+2. Install v2.3.
 3. Convert active backlog items into `.juicer/plan.md`.
 4. Move durable decisions into `.juicer/decisions.md`.
 5. Move reusable knowledge into `.juicer/learnings.md`.

@@ -1,5 +1,5 @@
 name: juicer-kit
-version: 2.2.0
+version: 2.3.0
 architecture: harness-agnostic
 state_dir: .juicer
 skills_source: .agents/skills

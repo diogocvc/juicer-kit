@@ -79,7 +79,8 @@ The adapter decides whether to use:
 
 ### capabilities()
 
-Return the adapter's actual capabilities.
+Return the adapter's declared capabilities (static metadata; `discover()`
+reports the actual environment).
 
 Example:
 

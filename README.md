@@ -1,4 +1,4 @@
-# Juicer Kit v2.2.0
+# Juicer Kit v2.3.0
 
 **A harness-agnostic operating system for AI-native software development.**
 
@@ -93,7 +93,7 @@ Then:
 ./bin/juicer mission "Build feature X"
 ```
 
-The installer creates the runtime state and mirrors portable skills into supported harness locations.
+The installer creates the runtime state and mirrors workers and portable skills into supported harness locations.
 
 Adapters are executable Python. By default only the adapters bundled
 with the kit are loaded; to load adapters from the project's
