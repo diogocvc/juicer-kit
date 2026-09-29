@@ -168,6 +168,8 @@ Every adapter records what it generated in
 Rules:
 
 1. Only paths recorded in the manifest may be deleted (stale cleanup).
+   Every entry is validated first: relative, no `..`, and resolving
+   inside the project root — anything else aborts the sync untouched.
 2. A recorded file whose disk hash no longer matches the manifest was
    modified by the user: it is kept and reported as a conflict unless
    `--force` is given.
@@ -228,6 +230,8 @@ Rules:
 - read canonical sources via `resolve_source()` (project copy first, kit
   fallback)
 - never write outside the project root, and never into `.juicer/`
+  (`write_generated` enforces this: its ``root=`` keyword is required and
+  the target must resolve inside it)
 - `sync` only creates/updates harness mirrors; deletions belong to the
   manifest-based cleanup (see *Sync safety and the manifest* above)
 - `discover` must degrade gracefully: missing binary → `available: false`
@@ -341,6 +345,7 @@ class Adapter(BaseAdapter):
             changes.append(write_generated(
                 path,
                 render_frontmatter(fm) + "\n" + worker.body.rstrip() + "\n",
+                root=ctx.root,
                 dry_run=dry_run,
             ))
         return changes

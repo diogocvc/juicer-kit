@@ -51,6 +51,7 @@ def test_canonical_workers_declare_access_and_tier():
 
 
 def test_generated_frontmatter_uses_only_harness_keys(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", "all").returncode == 0
 
     for path in sorted((tmp_path / ".opencode" / "agents").glob("*.md")):
@@ -69,6 +70,7 @@ def test_generated_frontmatter_uses_only_harness_keys(tmp_path):
 
 
 def test_opencode_permission_mapping(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", "opencode").returncode == 0
     reviewer = (tmp_path / ".opencode" / "agents" / "reviewer.md").read_text()
     assert "permission:\n  edit: deny\n  bash: deny" in reviewer
@@ -79,6 +81,7 @@ def test_opencode_permission_mapping(tmp_path):
 
 
 def test_opencode_v2_format_flag(tmp_path):
+    assert run(tmp_path, "init").returncode == 0, "init"
     r = run(tmp_path, "sync", "opencode", "--opencode-format", "v2")
     assert r.returncode == 0, r.stderr
     reviewer = (tmp_path / ".opencode" / "agents" / "reviewer.md").read_text()
@@ -93,6 +96,7 @@ def test_opencode_v2_format_flag(tmp_path):
 
 
 def test_claude_tools_mapping(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", "claude-code").returncode == 0
     reviewer = frontmatter(tmp_path / ".claude" / "agents" / "reviewer.md")
     assert reviewer["name"] == "reviewer"
@@ -110,6 +114,7 @@ def test_claude_tools_mapping(tmp_path):
 
 
 def test_cursor_readonly_mapping(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", "cursor").returncode == 0
     reviewer = (tmp_path / ".cursor" / "agents" / "reviewer.md").read_text()
     assert "readonly: true" in reviewer
@@ -122,6 +127,7 @@ def test_cursor_readonly_mapping(tmp_path):
 
 @pytest.mark.skipif(tomllib is None, reason="tomllib requires Python 3.11+")
 def test_codex_toml_uses_documented_keys_only(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", "codex").returncode == 0
 
     reviewer_path = tmp_path / ".codex" / "agents" / "reviewer.toml"
@@ -140,6 +146,7 @@ def test_codex_toml_uses_documented_keys_only(tmp_path):
 
 
 def test_generated_files_carry_provenance_marker(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", "all").returncode == 0
     opencode = (tmp_path / ".opencode" / "agents" / "reviewer.md").read_text()
     assert "<!-- juicer-kit: generated from agents/reviewer.md sha256:" in opencode

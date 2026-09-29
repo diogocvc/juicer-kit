@@ -110,6 +110,7 @@ DRIFT_CASES = [
 
 @pytest.mark.parametrize("adapter_id,relpath", DRIFT_CASES)
 def test_drift_detected_by_check(tmp_path, adapter_id, relpath):
+    assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "sync", adapter_id).returncode == 0
     target = tmp_path / relpath
     assert target.exists(), relpath

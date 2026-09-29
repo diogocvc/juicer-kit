@@ -17,7 +17,7 @@ def state(tmp_path):
 def fresh(tmp_path, objective="Objective under test"):
     assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "mission", objective).returncode == 0
-    assert run(tmp_path, "approve").returncode == 0
+    assert run(tmp_path, "approve", "--by=test").returncode == 0
 
 
 def test_corrupt_state_fails_cleanly(tmp_path):
@@ -62,7 +62,7 @@ def test_happy_path_full_cycle(tmp_path):
     assert s["status"] == "ready"
     assert s["current_unit"] is None
 
-    assert run(tmp_path, "ship-approve").returncode == 0
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
     assert state(tmp_path)["ship_approved"] is True
 
     assert run(tmp_path, "finish").returncode == 0
@@ -189,15 +189,15 @@ def test_ship_approve_gates(tmp_path):
     assert state(tmp_path)["ship_approved"] is False
 
     fresh(tmp_path)
-    r = run(tmp_path, "ship-approve")
+    r = run(tmp_path, "ship-approve", "--by=test")
     assert r.returncode == 0
     assert state(tmp_path)["ship_approved"] is True
 
     assert run(tmp_path, "start", "UNIT-001").returncode == 0
-    r = run(tmp_path, "ship-approve")
+    r = run(tmp_path, "ship-approve", "--by=test")
     assert r.returncode == 1
     assert "Cannot ship-approve" in r.stderr
-    assert state(tmp_path)["ship_approved"] is True
+    assert state(tmp_path)["ship_approved"] is False
 
 
 def test_mission_rejected_from_executing(tmp_path):
@@ -215,7 +215,7 @@ def test_mission_from_done_starts_new_cycle(tmp_path):
     fresh(tmp_path)
     assert run(tmp_path, "start", "UNIT-001").returncode == 0
     assert run(tmp_path, "checkpoint", "ready").returncode == 0
-    assert run(tmp_path, "ship-approve").returncode == 0
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
     assert run(tmp_path, "finish").returncode == 0
 
     assert run(tmp_path, "mission", "Second objective").returncode == 0
@@ -261,7 +261,7 @@ def to_blocked(tmp_path):
 
 def test_blocked_allows_approve_start_and_ready_checkpoint(tmp_path):
     to_blocked(tmp_path)
-    assert run(tmp_path, "approve").returncode == 0
+    assert run(tmp_path, "approve", "--by=test").returncode == 0
     s = state(tmp_path)
     assert s["status"] == "ready"
     assert s["approved"] is True
@@ -290,14 +290,14 @@ def test_blocked_allows_new_mission(tmp_path):
 
 def test_steady_state_gates_are_idempotent(tmp_path):
     fresh(tmp_path)
-    assert run(tmp_path, "approve").returncode == 0
+    assert run(tmp_path, "approve", "--by=test").returncode == 0
     assert state(tmp_path)["status"] == "ready"
 
     assert run(tmp_path, "checkpoint", "ready").returncode == 0
     assert state(tmp_path)["status"] == "ready"
 
-    assert run(tmp_path, "ship-approve").returncode == 0
-    assert run(tmp_path, "ship-approve").returncode == 0
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
     assert state(tmp_path)["ship_approved"] is True
 
     assert run(tmp_path, "finish").returncode == 0
@@ -314,7 +314,7 @@ def test_ship_approve_rejected_from_blocked_allowed_from_done(tmp_path):
 
     assert run(tmp_path, "checkpoint", "ready").returncode == 0
     assert run(tmp_path, "finish").returncode == 0
-    assert run(tmp_path, "ship-approve").returncode == 0
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
     assert state(tmp_path)["ship_approved"] is True
 
 

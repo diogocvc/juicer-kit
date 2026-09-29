@@ -147,8 +147,45 @@ def sha256_file(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def write_generated(path, content, dry_run=False, manifest=True):
-    """Write a generated file unless the existing content is identical."""
+def confine_path(root, path, what="path"):
+    """Resolve ``path`` and require it to stay strictly inside ``root``.
+
+    Rejects the root itself, anything that escapes after symlink
+    resolution, and (via :func:`confine_manifest_entry`) absolute or
+    ``..``-bearing manifest entries. Raises ``ValueError`` so the CLI can
+    turn it into a clean failure.
+    """
+    root_resolved = Path(root).resolve()
+    resolved = Path(path).resolve()
+    if resolved == root_resolved:
+        raise ValueError(f"{what} {path} resolves to the project root itself")
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        raise ValueError(
+            f"{what} {path} resolves outside the project root ({resolved})"
+        ) from None
+    return resolved
+
+
+def confine_manifest_entry(root, rel, adapter_id=""):
+    """Strict form for manifest entries: relative, no ``..``, inside root."""
+    where = f"adapter {adapter_id!r} manifest entry" if adapter_id else "manifest entry"
+    entry = Path(rel)
+    if entry.is_absolute():
+        raise ValueError(f"{where} {rel!r} is an absolute path")
+    if ".." in entry.parts:
+        raise ValueError(f"{where} {rel!r} contains '..'")
+    return confine_path(root, root / entry, what=where)
+
+
+def write_generated(path, content, *, root, dry_run=False, manifest=True):
+    """Write a generated file unless the existing content is identical.
+
+    ``root`` is mandatory and the target must resolve inside it: no
+    adapter, trusted or not, can write outside the project root.
+    """
+    confine_path(root, path, what="generated path")
     data = content.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
     if path.exists() and path.read_bytes() == data:
@@ -184,12 +221,12 @@ def ensure_entrypoint(ctx, dry_run=False):
     The entrypoint is project-owned: it is never tracked in the sync
     manifest and therefore never deleted as a stale generated file.
     """
-    target = ctx.root / "AGENTS.md"
+    target = confine_path(ctx.root, ctx.root / "AGENTS.md", what="entrypoint")
     if target.exists():
         return Change(path=target, action="skip", reason="exists",
                       digest=sha256_file(target), manifest=False)
     return write_generated(target, (ctx.kit / "AGENTS.md").read_text(),
-                           dry_run=dry_run, manifest=False)
+                           root=ctx.root, dry_run=dry_run, manifest=False)
 
 
 def mirror_skills(ctx, destination, dry_run=False):
@@ -202,7 +239,7 @@ def mirror_skills(ctx, destination, dry_run=False):
         if not src.is_file():
             continue
         rel = src.relative_to(source)
-        dst = destination / rel
+        dst = confine_path(ctx.root, destination / rel, what="skills mirror path")
         data = src.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         if dst.exists() and dst.read_bytes() == data:
@@ -289,7 +326,8 @@ class Adapter:
             marker = ctx.root / self.marker_dir / "juicer-kit.md"
             readme = ctx.kit / "adapters" / self.id / "README.md"
             content = readme.read_text() if readme.exists() else f"Juicer Kit adapter: {self.id}\n"
-            changes.append(write_generated(marker, content, dry_run=dry_run))
+            changes.append(write_generated(marker, content, root=ctx.root,
+                                           dry_run=dry_run))
         return changes
 
     def invoke(self, ctx, worker, unit=None):

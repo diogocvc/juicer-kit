@@ -2,9 +2,14 @@
 """Juicer Kit v2.3 CLI. Dependency-free project workflow controller."""
 
 from __future__ import annotations
-import argparse, importlib.util, json, os, re, shutil, sys
+import argparse, contextlib, getpass, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX: the advisory lock degrades to a no-op
+    fcntl = None
 
 ROOT = Path.cwd()
 KIT = Path(__file__).resolve().parents[1]
@@ -14,10 +19,12 @@ PLAN = ROOT / ".juicer" / "plan.md"
 HANDOFF = ROOT / ".juicer" / "handoff.md"
 
 WORKER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
-PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/")
+MISSION_MARKER = "## Success criteria"
+PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/",
+                   ".juicer/state.lock", ".juicer/state.json.tmp")
 
 sys.path.insert(0, str(KIT / "adapters"))
-from _base import Ctx, sha256_file  # noqa: E402
+from _base import Ctx, confine_manifest_entry, confine_path, sha256_file  # noqa: E402
 
 def fail(message):
     print(f"error: {message}", file=sys.stderr)
@@ -26,18 +33,112 @@ def fail(message):
 def now():
     return datetime.now(timezone.utc).isoformat()
 
-def read_state():
+# --- State persistence (BUG-01) -------------------------------------------
+# Every write goes through an exclusive advisory lock and an atomic
+# replace with monotonic revision fencing: stale writers fail instead of
+# silently resurrecting lost state.
+
+_lock_depth = 0
+
+@contextlib.contextmanager
+def state_lock():
+    """Exclusive advisory lock over the workspace state (reentrant)."""
+    global _lock_depth
+    if fcntl is None or _lock_depth:
+        _lock_depth += 1
+        try:
+            yield
+        finally:
+            _lock_depth -= 1
+        return
+    path = ROOT / ".juicer" / "state.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        _lock_depth += 1
+        try:
+            yield
+        finally:
+            _lock_depth -= 1
+    finally:
+        os.close(fd)
+
+def _read_disk_state():
     if not STATE.exists():
-        return {"schema":1,"kit_version":"2.3.0","status":"uninitialized"}
+        return None
     try:
         return json.loads(STATE.read_text())
     except ValueError as error:
         fail(f"Invalid state file {STATE}: {error}")
 
-def write_state(state):
-    STATE.parent.mkdir(parents=True, exist_ok=True)
+def read_state():
+    disk = _read_disk_state()
+    if disk is None:
+        return {"schema":1,"kit_version":"2.3.0","status":"uninitialized"}
+    return disk
+
+def _state_revision(state):
+    value = (state or {}).get("revision", 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        fail(f"Invalid state file {STATE}: revision must be a non-negative integer")
+    return value
+
+def _atomic_write_text(path, text):
+    """Replace ``path`` atomically (tmp + fsync + rename) next to itself."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / (path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+def _fenced_write(state):
+    """Persist state.json; reject stale writers via the revision fence."""
+    disk = _read_disk_state()
+    disk_rev = _state_revision(disk)
+    passed = _state_revision(state)
+    if passed != disk_rev:
+        fail(f"stale state revision: expected {disk_rev}, got {passed} "
+             "(state changed on disk since it was read; re-read and retry)")
+    state["revision"] = disk_rev + 1
     state["updated_at"] = now()
-    STATE.write_text(json.dumps(state, indent=2) + "\n")
+    _atomic_write_text(STATE, json.dumps(state, indent=2) + "\n")
+
+def write_state(state):
+    """Direct fenced write. Prefer update_state() for read-modify-write flows."""
+    with state_lock():
+        _fenced_write(state)
+
+def update_state(mutator):
+    """Read-modify-write under one exclusive lock.
+
+    The gate/mutation runs on a fresh disk copy; ship approvals are
+    eagerly re-validated before the write so the persisted JSON is always
+    consistent for direct readers.
+    """
+    with state_lock():
+        state = _read_disk_state()
+        if state is None:
+            state = {"schema":1,"kit_version":"2.3.0","status":"idle","mission_id":None,
+                     "current_unit":None,"approved":False,"ship_approved":False}
+        mutator(state)
+        if state.get("ship_approved"):
+            _refresh_ship_approval(state)
+        _fenced_write(state)
+        return state
 
 def ensure_mission():
     mission = ROOT / ".juicer" / "mission.md"
@@ -48,9 +149,162 @@ def ensure_mission():
 def ensure_runtime():
     (ROOT / ".juicer").mkdir(exist_ok=True)
     if not STATE.exists():
-        write_state({"schema":1,"kit_version":"2.3.0","status":"idle","mission_id":None,
-                     "current_unit":None,"approved":False,"ship_approved":False})
+        update_state(lambda state: None)
     ensure_mission()
+
+# --- Approval provenance (BUG-02) -----------------------------------------
+
+def approval_identity(by):
+    """Resolve who is approving: explicit automation id, or the interactive OS user."""
+    if by is not None:
+        by = by.strip()
+        if not by:
+            fail("--by requires a non-empty identifier")
+        return by, "automation"
+    if sys.stdin.isatty():
+        try:
+            user = getpass.getuser()
+        except OSError:
+            user = ""
+        return (user or "unknown"), "interactive"
+    fail("cannot record approval without an identity: stdin is not a TTY; "
+         "pass --by=<id> for automation (e.g. --by=ci)")
+
+def _new_record(state, **fields):
+    """Provenance record stamped with the revision this write will produce."""
+    fields.setdefault("revision", _state_revision(state) + 1)
+    fields.setdefault("at", now())
+    return fields
+
+def _record_valid(record, require_target=False):
+    if not isinstance(record, dict):
+        return False
+    if not isinstance(record.get("by"), str) or not record["by"].strip():
+        return False
+    if not isinstance(record.get("at"), str) or not record["at"].strip():
+        return False
+    if record.get("via") not in ("interactive", "automation"):
+        return False
+    revision = record.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        return False
+    if require_target:
+        target = record.get("target")
+        if not isinstance(target, dict):
+            return False
+        digest = target.get("digest")
+        if not isinstance(digest, str) or not digest:
+            return False
+    return True
+
+def _record_bound(record, state):
+    """Field validity + revision binding: a record can never come from the future."""
+    return (_record_valid(record)
+            and record["revision"] <= _state_revision(state))
+
+def _approval_valid(state):
+    return state.get("approved") is True and _record_bound(state.get("approval"), state)
+
+def _ship_approval_valid(state):
+    record = state.get("ship_approval")
+    return (state.get("ship_approved") is True
+            and _record_bound(record, state)
+            and _record_valid(record, require_target=True))
+
+# --- Ship target digest (BUG-03) ------------------------------------------
+
+def _safe_sha(path):
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+def _under_juicer(path):
+    path = path.strip().strip('"')
+    return path == ".juicer" or path.startswith(".juicer/")
+
+def _porcelain_dirty_digest(root):
+    """Digest of ``git status --porcelain`` with ``.juicer/`` artifacts removed.
+
+    Juicer's own persistence (state.json, state.lock, atomic tmp) lives
+    under ``.juicer/`` and must never flip the approval it just recorded.
+    """
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "status", "--porcelain"],
+                              capture_output=True, text=True)
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    kept = []
+    for line in proc.stdout.splitlines():
+        if len(line) < 4:
+            kept.append(line)
+            continue
+        paths = [part.strip() for part in line[3:].split(" -> ")]
+        if all(_under_juicer(part) for part in paths):
+            continue
+        kept.append(line)
+    return hashlib.sha256("\n".join(kept).encode("utf-8")).hexdigest()
+
+def ship_target_digest(state):
+    """Digest of the approved target: plan, mission content, active unit and code.
+
+    Everything under ``.juicer/`` is excluded from the git-dirty component
+    (plan/mission enter via their content hashes instead), so state
+    persistence can never invalidate an approval by itself.
+    """
+    parts = {
+        "plan": _safe_sha(ROOT / ".juicer" / "plan.md"),
+        "mission": _safe_sha(ROOT / ".juicer" / "mission.md"),
+        "current_unit": state.get("current_unit"),
+    }
+    if (ROOT / ".git").exists():
+        head = None
+        try:
+            proc = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True)
+            if proc.returncode == 0:
+                head = proc.stdout.strip() or None
+        except OSError:
+            head = None
+        parts["git_head"] = head
+        parts["git_dirty"] = _porcelain_dirty_digest(ROOT)
+    payload = json.dumps(parts, sort_keys=True)
+    return {"parts": parts, "digest": hashlib.sha256(payload.encode("utf-8")).hexdigest()}
+
+def _approval_target(state):
+    return {"plan": _safe_sha(ROOT / ".juicer" / "plan.md"),
+            "mission_id": state.get("mission_id")}
+
+def _refresh_ship_approval(state):
+    """Eager invalidation inside update_state: ship binds to the exact target."""
+    record = state.get("ship_approval")
+    if not _record_valid(record, require_target=True):
+        state["ship_approved"] = False
+        return
+    if record["target"]["digest"] != ship_target_digest(state)["digest"]:
+        state["ship_approved"] = False
+
+def _effective_state(state):
+    """Computed status view: flags are only reported when fully backed."""
+    notes = []
+    if state.get("approved") and not _record_bound(state.get("approval"), state):
+        state["approved"] = False
+        notes.append("approved flag ignored: approval record missing or invalid "
+                     "(re-run juicer approve)")
+    if state.get("ship_approved"):
+        record = state.get("ship_approval")
+        if not (_record_bound(record, state)
+                and _record_valid(record, require_target=True)):
+            state["ship_approved"] = False
+            notes.append("ship_approved flag ignored: ship approval record missing "
+                         "or invalid (re-run juicer ship-approve)")
+        elif record["target"]["digest"] != ship_target_digest(state)["digest"]:
+            state["ship_approved"] = False
+            notes.append("ship_approved invalidated: approved target changed "
+                         "(plan/mission/unit/code)")
+    return state, notes
 
 def copy_missing(src, dst):
     if src.is_dir():
@@ -262,15 +516,42 @@ def _prune_empty_dirs(path):
             break
         parent = parent.parent
 
+def _validate_manifest(adapter_id, manifest):
+    """Two-pass safety (BUG-07): reject every unsafe entry BEFORE any FS op."""
+    unsafe = []
+    for rel in manifest:
+        try:
+            confine_manifest_entry(ROOT, rel, adapter_id)
+        except ValueError as error:
+            unsafe.append(str(error))
+    if unsafe:
+        fail(f"adapter {adapter_id!r} manifest contains {len(unsafe)} unsafe "
+             "entr" + ("y" if len(unsafe) == 1 else "ies") + " (no files touched): "
+             + "; ".join(unsafe))
+
+def _validate_change_paths(adapter_id, changes):
+    unsafe = []
+    for change in changes:
+        try:
+            confine_path(ROOT, change.path, what="generated change path")
+        except ValueError as error:
+            unsafe.append(str(error))
+    if unsafe:
+        fail(f"adapter {adapter_id!r} produced unsafe paths (no files touched): "
+             + "; ".join(unsafe))
+
 def apply_manifest(adapter_id, changes, dry_run=False, check=False, force=False):
     """Reconcile generated files against the adapter's manifest.
 
     Safety rules: only files recorded in the manifest may be deleted;
     a recorded file the user modified is kept (unless ``force``) and
     reported as a conflict. Project-owned files (``manifest=False``,
-    e.g. AGENTS.md) and unmanaged files are never touched.
+    e.g. AGENTS.md) and unmanaged files are never touched. All manifest
+    entries and change paths are validated to stay inside ROOT before
+    anything is read, deleted or written.
     """
     changes = [c for c in changes if c is not None]
+    _validate_change_paths(adapter_id, changes)
     current, writes = {}, []
     for change in changes:
         if change.action == "write":
@@ -278,6 +559,7 @@ def apply_manifest(adapter_id, changes, dry_run=False, check=False, force=False)
         if change.manifest and change.digest:
             current[_rel(change.path)] = change.digest
     manifest = load_manifest(adapter_id)
+    _validate_manifest(adapter_id, manifest)
     deletes, conflicts = [], []
     for rel, digest in manifest.items():
         if rel in current:
@@ -302,6 +584,7 @@ def apply_manifest(adapter_id, changes, dry_run=False, check=False, force=False)
 
 def _sync_one(adapter, ctx, dry_run, check, force, verb="synced", install=False):
     manifest = load_manifest(adapter.id)
+    _validate_manifest(adapter.id, manifest)
     pre = {}
     if not (dry_run or check):
         pre = {rel: sha256_file(ROOT / rel)
@@ -364,11 +647,36 @@ def _call(method, *args, **kwargs):
         fail(str(error))
 
 
+def _new_mission_id():
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f") + "-" + uuid.uuid4().hex[:8]
+
+def render_mission(objective):
+    """Deterministic full render of mission.md from the kit template.
+
+    A new mission starts a clean context: Status and Objective are
+    replaced and every other section (Constraints, Scope, Decisions, ...)
+    returns to its pristine template state.
+    """
+    template = (KIT / ".juicer" / "mission.md").read_text()
+    if MISSION_MARKER not in template:
+        fail(f"kit mission template is missing the {MISSION_MARKER!r} marker")
+    if "## Objective" not in template:
+        fail("kit mission template is missing the '## Objective' section")
+    if not re.search(r"(?m)^\*\*Status:\*\*\s*\S", template):
+        fail("kit mission template is missing its '**Status:**' line")
+    head, marker, tail = template.partition(MISSION_MARKER)
+    head = re.sub(r"(?m)^\*\*Status:\*\*.*$", "**Status:** planning", head, count=1)
+    before_objective, _, _ = head.partition("## Objective")
+    return (before_objective + "## Objective\n\n" + objective.rstrip() + "\n\n"
+            + marker + tail)
+
 def cmd_init(_):
     ensure_runtime()
-    for name in ["AGENTS.md", ".juicer/mission.md", ".juicer/plan.md",
-                 ".juicer/handoff.md", ".juicer/decisions.md", ".juicer/learnings.md"]:
+    for name in ["AGENTS.md", ".juicer/mission.md", ".juicer/plan.md"]:
         copy_missing(KIT / name, ROOT / name)
+    for name in ("handoff", "decisions", "learnings"):
+        copy_missing(KIT / ".juicer" / "templates" / f"{name}.md",
+                     ROOT / ".juicer" / f"{name}.md")
     for tree in [".juicer/workflows", "agents", ".agents/skills"]:
         copy_missing(KIT / tree, ROOT / tree)
     ensure_project_gitignore()
@@ -377,8 +685,10 @@ def cmd_init(_):
 
 def cmd_status(_):
     ensure_runtime()
-    s = read_state()
+    s, notes = _effective_state(read_state())
     print(json.dumps(s, indent=2))
+    for note in notes:
+        print(f"note: {note}", file=sys.stderr)
     commands = available_commands(s.get("status", "idle"))
     if commands:
         print("\navailable: " + ", ".join(commands))
@@ -390,26 +700,28 @@ def cmd_mission(args):
     ensure_runtime()
     state = read_state()
     require_state("start a new mission", state.get("status"), MISSION_FROM)
-    state.update({"status":"planning","mission_id":datetime.now().strftime("%Y%m%d-%H%M%S"),
+    text = render_mission(args.objective)  # fail early on template problems
+    def mut(s):
+        require_state("start a new mission", s.get("status"), MISSION_FROM)
+        s.update({"status":"planning","mission_id":_new_mission_id(),
                   "current_unit":None,"approved":False,"ship_approved":False})
-    write_state(state)
-    text = MISSION.read_text()
-    marker = "## Objective"
-    before, _, after = text.partition(marker)
-    after_lines = after.splitlines()
-    if after_lines:
-        after_lines = after_lines[1:]
-    new = before + marker + "\n\n" + args.objective + "\n\n" + "\n".join(after_lines)
-    MISSION.write_text(new)
+        s.pop("approval", None)
+        s.pop("ship_approval", None)
+    update_state(mut)
+    _atomic_write_text(MISSION, text)
     print("Mission created. Planning gate is pending.")
     print("Next: update .juicer/plan.md, then run `juicer approve`.")
 
-def cmd_approve(_):
+def cmd_approve(args):
     ensure_runtime()
     state = read_state()
     require_state("approve", state.get("status"), APPROVE_FROM)
-    state.update({"status":"ready","approved":True})
-    write_state(state)
+    by, via = approval_identity(args.by)
+    def mut(s):
+        require_state("approve", s.get("status"), APPROVE_FROM)
+        s.update({"status":"ready","approved":True})
+        s["approval"] = _new_record(s, by=by, via=via, target=_approval_target(s))
+    update_state(mut)
     print("Mission plan approved. Implementation may proceed.")
 
 def cmd_start(args):
@@ -417,9 +729,19 @@ def cmd_start(args):
     state = read_state()
     if not state.get("approved"):
         fail("Blocked: approve the plan before starting work.")
+    if not _approval_valid(state):
+        fail("Blocked: approval record is missing or invalid; "
+             "audit .juicer/state.json and re-run juicer approve.")
     require_state("start", state.get("status"), START_FROM)
-    state.update({"status":"executing","current_unit":args.unit})
-    write_state(state)
+    def mut(s):
+        if not s.get("approved"):
+            fail("Blocked: approve the plan before starting work.")
+        if not _approval_valid(s):
+            fail("Blocked: approval record is missing or invalid; "
+                 "audit .juicer/state.json and re-run juicer approve.")
+        require_state("start", s.get("status"), START_FROM)
+        s.update({"status":"executing","current_unit":args.unit})
+    update_state(mut)
     print(f"Active unit: {args.unit}")
 
 def cmd_checkpoint(args):
@@ -427,18 +749,32 @@ def cmd_checkpoint(args):
     state = read_state()
     require_state(f"checkpoint {args.status}", state.get("status"),
                   CHECKPOINT_RULES[args.status])
-    state["status"] = args.status
-    if args.status in ("ready", "done"):
-        state["current_unit"] = None
-    write_state(state)
+    def mut(s):
+        require_state(f"checkpoint {args.status}", s.get("status"),
+                      CHECKPOINT_RULES[args.status])
+        s["status"] = args.status
+        if args.status in ("ready", "done"):
+            s["current_unit"] = None
+    update_state(mut)
     print(f"Checkpoint saved: {args.status}")
 
-def cmd_ship_approve(_):
+def cmd_ship_approve(args):
     ensure_runtime()
     state = read_state()
     require_state("ship-approve", state.get("status"), SHIP_FROM)
-    state["ship_approved"] = True
-    write_state(state)
+    if not (state.get("approved") and _approval_valid(state)):
+        fail("Cannot ship-approve: mission plan approval is missing or invalid; "
+             "run juicer approve first.")
+    by, via = approval_identity(args.by)
+    def mut(s):
+        require_state("ship-approve", s.get("status"), SHIP_FROM)
+        if not (s.get("approved") and _approval_valid(s)):
+            fail("Cannot ship-approve: mission plan approval is missing or invalid; "
+                 "run juicer approve first.")
+        s["ship_approved"] = True
+        s["ship_approval"] = _new_record(s, by=by, via=via,
+                                         target=ship_target_digest(s))
+    update_state(mut)
     print("Production-impacting actions are approved.")
 
 def find_worker(name):
@@ -478,9 +814,46 @@ def cmd_finish(_):
     ensure_runtime()
     state = read_state()
     require_state("finish", state.get("status"), FINISH_FROM)
-    state.update({"status":"done","current_unit":None})
-    write_state(state)
+    def mut(s):
+        require_state("finish", s.get("status"), FINISH_FROM)
+        s.update({"status":"done","current_unit":None})
+    update_state(mut)
     print("Mission marked done.")
+
+# --- Workspace discovery (BUG-04) -----------------------------------------
+# Gate/state commands require an initialized workspace (.juicer/state.json
+# in this directory or above). Read-only commands fall back to the cwd.
+
+WORKSPACE_REQUIRED = {"status", "mission", "approve", "ship-approve", "start",
+                      "checkpoint", "finish", "sync", "install", "invoke"}
+
+def find_project_root(start=None):
+    current = Path(start or Path.cwd()).resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / ".juicer" / "state.json").is_file():
+            return candidate
+    return None
+
+def bind_root(path):
+    global ROOT, STATE, MISSION, PLAN, HANDOFF
+    ROOT = Path(path)
+    STATE = ROOT / ".juicer" / "state.json"
+    MISSION = ROOT / ".juicer" / "mission.md"
+    PLAN = ROOT / ".juicer" / "plan.md"
+    HANDOFF = ROOT / ".juicer" / "handoff.md"
+
+def _bind_for_command(cmd):
+    root = find_project_root()
+    if cmd == "init":
+        bind_root(Path.cwd())
+        return
+    if cmd in WORKSPACE_REQUIRED:
+        if root is None:
+            fail(f"not inside an initialized Juicer project (no .juicer/state.json "
+                 f"found up from {Path.cwd()}); run `juicer init` first")
+        bind_root(root)
+        return
+    bind_root(root if root is not None else Path.cwd())
 
 def main():
     p = argparse.ArgumentParser(prog="juicer")
@@ -488,9 +861,15 @@ def main():
     trust = argparse.ArgumentParser(add_help=False)
     trust.add_argument("--trust-project-adapters", action="store_true",
                        help="import adapter.py from the project's adapters/ directory (untrusted by default)")
-    for name, fn in [("status",cmd_status),("approve",cmd_approve),
-                     ("ship-approve",cmd_ship_approve),("finish",cmd_finish)]:
+    by_help = "record this approval under an automation identity (required without a TTY)"
+    for name, fn in [("status",cmd_status),("finish",cmd_finish)]:
         sub.add_parser(name).set_defaults(fn=fn)
+    ap = sub.add_parser("approve")
+    ap.add_argument("--by", default=None, metavar="ID", help=by_help)
+    ap.set_defaults(fn=cmd_approve)
+    spa = sub.add_parser("ship-approve")
+    spa.add_argument("--by", default=None, metavar="ID", help=by_help)
+    spa.set_defaults(fn=cmd_ship_approve)
     sub.add_parser("init", parents=[trust]).set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)
@@ -524,6 +903,7 @@ def main():
     args = p.parse_args()
     global TRUST_PROJECT
     TRUST_PROJECT = bool(getattr(args, "trust_project_adapters", False))
+    _bind_for_command(args.cmd)
     args.fn(args)
 
 if __name__ == "__main__":

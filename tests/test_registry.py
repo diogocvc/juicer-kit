@@ -31,7 +31,8 @@ FAKE_ADAPTER = textwrap.dedent(
         def sync(self, ctx, dry_run=False):
             changes = [ensure_entrypoint(ctx, dry_run=dry_run)]
             changes.append(
-                write_generated(ctx.root / ".fake" / "generated.txt", "generated\\n", dry_run=dry_run)
+                write_generated(ctx.root / ".fake" / "generated.txt", "generated\\n",
+                                root=ctx.root, dry_run=dry_run)
             )
             return changes
     """
@@ -57,7 +58,8 @@ OVERRIDE_ZED = textwrap.dedent(
         def sync(self, ctx, dry_run=False):
             changes = [ensure_entrypoint(ctx, dry_run=dry_run)]
             changes.append(
-                write_generated(ctx.root / ".zed-override.txt", "project wins\\n", dry_run=dry_run)
+                write_generated(ctx.root / ".zed-override.txt", "project wins\\n",
+                                root=ctx.root, dry_run=dry_run)
             )
             return changes
     """
@@ -100,6 +102,7 @@ def test_project_adapter_ignored_by_default(tmp_path):
     assert "untrusted project code" in r.stderr
     assert r.stdout == ""
 
+    assert run(tmp_path, "init").returncode == 0
     r = run(tmp_path, "sync", "fake")
     assert r.returncode == 1
     assert "untrusted project code" in r.stderr
@@ -120,6 +123,7 @@ def test_project_adapter_loads_with_trust_flag(tmp_path):
     assert "subagents: false" in r.stdout
     assert "discover:" in r.stdout
 
+    assert run(tmp_path, "init").returncode == 0
     r = run(tmp_path, "sync", "fake", "--trust-project-adapters")
     assert r.returncode == 0, r.stderr
     assert "synced: fake" in r.stdout
@@ -148,6 +152,7 @@ def test_init_does_not_load_untrusted_project_adapters(tmp_path):
 
 
 def test_unknown_adapter_exits_one(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     r = run(tmp_path, "sync", "nope")
     assert r.returncode == 1
     assert "Unknown adapter: nope" in r.stderr
@@ -161,6 +166,7 @@ def test_unknown_adapter_exits_one(tmp_path):
 
 def test_project_adapter_overrides_kit_id(tmp_path):
     write_adapter(tmp_path, "zed", OVERRIDE_ZED)
+    assert run(tmp_path, "init").returncode == 0
     r = run(tmp_path, "sync", "zed", "--trust-project-adapters")
     assert r.returncode == 0, r.stderr
     assert "synced: zed" in r.stdout
@@ -168,6 +174,7 @@ def test_project_adapter_overrides_kit_id(tmp_path):
 
 
 def test_install_writes_marker_but_sync_does_not(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
     r = run(tmp_path, "sync", "codex")
     assert r.returncode == 0, r.stderr
     assert not (tmp_path / ".codex" / "juicer-kit.md").exists()
@@ -189,6 +196,7 @@ INVOKE_CASES = [
 
 @pytest.mark.parametrize("adapter_id,native", INVOKE_CASES)
 def test_invoke_returns_harness_instructions(tmp_path, adapter_id, native):
+    assert run(tmp_path, "init").returncode == 0
     r = run(tmp_path, "invoke", adapter_id, "reviewer", "--unit", "UNIT-001")
     assert r.returncode == 0, r.stderr
     assert f"harness: {adapter_id}" in r.stdout

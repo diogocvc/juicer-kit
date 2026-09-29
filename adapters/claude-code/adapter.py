@@ -73,7 +73,7 @@ class Adapter(BaseAdapter):
         for worker in iter_workers(ctx):
             content = render_agent(self._frontmatter(worker), worker)
             path = ctx.root / self.agents_dir / f"{worker.name}.md"
-            changes.append(write_generated(path, content, dry_run=dry_run))
+            changes.append(write_generated(path, content, root=ctx.root, dry_run=dry_run))
         return changes
 
     def invoke(self, ctx, worker, unit=None):

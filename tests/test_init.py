@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -5,7 +6,8 @@ from pathlib import Path
 KIT = Path(__file__).resolve().parents[1]
 CLI = KIT / "bin" / "juicer"
 
-MIRRORS = [".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/"]
+MIRRORS = [".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/",
+           ".juicer/state.lock", ".juicer/state.json.tmp"]
 
 
 def run(cwd, *args):
@@ -86,13 +88,11 @@ def test_worker_rejects_invalid_names(tmp_path):
         assert r.stdout == ""
 
 
-def test_mission_works_before_init(tmp_path):
+def test_mission_requires_initialized_workspace(tmp_path):
     r = run(tmp_path, "mission", "Ship the release")
-    assert r.returncode == 0, r.stderr
-    mission = tmp_path / ".juicer" / "mission.md"
-    assert mission.exists()
-    assert "Ship the release" in mission.read_text()
-    assert (tmp_path / ".juicer" / "state.json").exists()
+    assert r.returncode == 1
+    assert "juicer init" in r.stderr
+    assert not (tmp_path / ".juicer").exists()
 
 
 def test_unknown_adapter_exits_nonzero(tmp_path):
@@ -113,3 +113,30 @@ def test_blocked_gate_exits_nonzero_on_stderr(tmp_path):
     assert r.returncode == 1
     assert "Cannot approve" in r.stderr
     assert r.stdout == ""
+
+
+def test_init_copies_pristine_history_templates(tmp_path):
+    """BUG-06: kit development history never ships into a new project."""
+    assert run(tmp_path, "init").returncode == 0
+    for name in ("handoff", "decisions", "learnings"):
+        project = tmp_path / ".juicer" / f"{name}.md"
+        template = KIT / ".juicer" / "templates" / f"{name}.md"
+        assert project.exists(), name
+        assert project.read_bytes() == template.read_bytes(), name
+        text = project.read_text()
+        assert not re.search(r"(?m)^## \d{4}-\d{2}-\d{2}", text), name
+        assert not re.search(r"(?m)^### \d{4}-\d{2}-\d{2}", text), name
+        assert "post-audit" not in text, name
+
+
+def test_init_does_not_copy_templates_dir(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    assert not (tmp_path / ".juicer" / "templates").exists()
+
+
+def test_kit_templates_are_pristine():
+    for name in ("handoff", "decisions", "learnings"):
+        text = (KIT / ".juicer" / "templates" / f"{name}.md").read_text()
+        assert not re.search(r"(?m)^## \d{4}-\d{2}-\d{2}", text), name
+        assert not re.search(r"(?m)^### \d{4}-\d{2}-\d{2}", text), name
+        assert "post-audit" not in text, name

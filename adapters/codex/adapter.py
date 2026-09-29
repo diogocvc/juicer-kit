@@ -81,7 +81,8 @@ class Adapter(BaseAdapter):
         changes = [ensure_entrypoint(ctx, dry_run=dry_run)]
         for worker in iter_workers(ctx):
             path = ctx.root / self.agents_dir / f"{worker.name}.toml"
-            changes.append(write_generated(path, self._render(worker), dry_run=dry_run))
+            changes.append(write_generated(path, self._render(worker), root=ctx.root,
+                                           dry_run=dry_run))
         return changes
 
     def invoke(self, ctx, worker, unit=None):
