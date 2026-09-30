@@ -23,7 +23,7 @@ They must not redefine:
 - approval semantics
 - project architecture
 
-## Contract v1
+## Contract
 
 Every adapter should expose these conceptual operations:
 
@@ -145,8 +145,10 @@ Prohibited in every generated file: `role:`, `access:`, `tier:`,
 `name` rules: required in `.claude/agents/`, prohibited in
 `.opencode/agents/`, omitted (filename-derived) in `.cursor/agents/`.
 
-Workers without `access` default to `edit`; invalid `access`/`tier`
-values abort `sync` with exit 1.
+Workers without `access` default to `edit`. An invalid `access` value
+aborts `sync` with exit 1 (`worker reviewer: invalid access …`). `tier`
+is canonical planning metadata only: `sync` does not validate it, and
+`tests/test_frontmatter.py` is what keeps the kit's own workers legal.
 
 ## Sync safety and the manifest
 
@@ -168,8 +170,11 @@ Every adapter records what it generated in
 Rules:
 
 1. Only paths recorded in the manifest may be deleted (stale cleanup).
-   Every entry is validated first: relative, no `..`, and resolving
-   inside the project root — anything else aborts the sync untouched.
+   Every entry is validated first: relative, no `..`, resolving inside
+   the project root, outside `.juicer/`, `.git/` and `.gitignore`, and
+   inside the adapter's declared `owned_paths()`. Anything else aborts
+   the sync before a file is deleted or a manifest entry is recorded —
+   the error names what will not happen.
 2. A recorded file whose disk hash no longer matches the manifest was
    modified by the user: it is kept and reported as a conflict unless
    `--force` is given.
@@ -222,8 +227,9 @@ Ctx(root=<project>, kit=<kit>, state_dir=".juicer",
 ```
 
 Helpers from `_base`: `read_frontmatter`, `render_frontmatter`,
-`write_generated`, `resolve_source`, `iter_workers`, `ensure_entrypoint`,
-`mirror_skills`, `direct_instructions`.
+`write_generated`, `resolve_source`, `iter_workers`, `worker_access`,
+`ensure_entrypoint`, `mirror_skills`, `direct_instructions`,
+`trusted_source`.
 
 Rules:
 
@@ -277,6 +283,46 @@ adapter was written against.
 |---|---|
 | `1` | Pre-2.4.0 contract: `write_generated()` had no `root=` keyword and output was not ownership-checked. |
 | `2` | `write_generated(..., root=...)` is required; adapters must declare `agents_dir`/`skills_dir`/`marker_dir` so `owned_paths()` can bound what they may write and delete. |
+
+## Migrating from contract v1 to v2
+
+Contract v2 (shipped in 2.4.0) is a **breaking change** for adapter
+authors. The operations (`discover`, `install`, `sync`, `invoke`,
+`capabilities`) are unchanged; the write side is not.
+
+```python
+# contract v1 — no root, no ownership
+write_generated(path, content, dry_run=dry_run)
+
+# contract v2 — root is a required keyword-only argument
+write_generated(path, content, root=ctx.root, dry_run=dry_run)
+```
+
+What breaks:
+
+| | Contract v1 (pre-2.4.0) | Contract v2 |
+|---|---|---|
+| `root` | not accepted | **required** keyword argument; omitting it raises `TypeError` |
+| Writable paths | anywhere inside the project root | must also fall inside the adapter's declared `agents_dir`/`skills_dir`/`marker_dir`, or `write_generated` raises `ValueError` while your `sync` runs |
+| Manifest entries | checked for confinement only | re-checked against `owned_paths()` at manifest load, before any delete |
+| `contract_version` | `1` | `2` |
+
+How to migrate an existing adapter:
+
+1. Pass `root=ctx.root` to every `write_generated()` call.
+2. Declare `agents_dir`, `skills_dir` and `marker_dir` on the class.
+   `owned_paths()` derives its allowlist from those three; nothing
+   declared means nothing you may write. The Zed adapter deliberately
+   declares `None` for all three because it generates only
+   `AGENTS.md`.
+3. For project-owned output (the `AGENTS.md` entrypoint) keep using
+   `manifest=False`; those paths are exempt from the ownership check by
+   design.
+4. Set `contract_version: 2` in `adapter.yaml`.
+
+A v1 adapter fails loudly rather than silently writing to the wrong
+place: either `TypeError` on the missing `root=` or `is not owned by
+this adapter` from the ownership check.
 
 ## Discovery
 

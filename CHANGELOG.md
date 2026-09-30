@@ -2,97 +2,144 @@
 
 ## 2.4.0 — 2026-09-30
 
-Security baseline / release candidate. Post-release audit: three
-severity passes plus a hardening pass, one commit per phase
-(`1a8b7e8` BLOCKER, `14a0fe4` HIGH, `eb8e264` MEDIUM, plus this one).
-**BLOCKER 0, HIGH 0, MEDIUM 0.** No new features; every change is an
-audit finding or a document/test that keeps a claim from outrunning the
-mechanism behind it.
+Security baseline / release candidate. Post-release audit of the kit,
+fixed in severity order, one commit per phase:
 
-### Security — BLOCKER
+```text
+1a8b7e8   BLOCKER      14a0fe4   HIGH      eb8e264   MEDIUM      b4c0a87   LOW + RC
+```
 
-- **Every write is confined.** `bin/juicer` routes all writes through
+Result: **BLOCKER 0, HIGH 0, MEDIUM 0.** No new features and no
+architectural refactors — every change is an audit finding, or a
+document brought back in line with the mechanism behind it. The full
+threat model, trust boundary and limitation list live in
+`docs/security.md`.
+
+### Security
+
+- **Every CLI write is confined.** `bin/juicer` routes its writes through
   `confine_write()` (root, `.juicer/`, `.gitignore`, `AGENTS.md`,
-  `copy_missing`, state lock, manifests) and all adapter output through
+  `copy_missing`, state lock, manifests) and adapter output through
   `confine_generated()`, which additionally refuses `.juicer/`, `.git/`
   and `.gitignore`. A symlink planted in the repository can no longer
   redirect a write outward.
-- **`.juicer/` is owned by Juicer.** Only files recorded in the runtime
-  manifests may be deleted, and only after every manifest entry passes
-  confinement.
-- **README no longer claims four enforced gates.** Gate 2 (scope) and
-  Gate 3 (verification) are labelled workflow conventions;
-  `docs/security.md` is the authority for what is mechanical.
-
-### Security — HIGH
-
-- **Approvals are bound to content.** `juicer approve` and
-  `juicer ship-approve` record the plan and mission digests; editing
-  either afterwards invalidates the record until approval runs again,
-  with the reason shown by `juicer status`.
-- **Symlinked sources are refused.** Workers and skills resolving
-  outside the project or kit root are skipped with a warning instead of
-  being rendered into harness files.
-- **Nested `init` is refused by default.** It explains the `--nested`
-  opt-in, which creates a separate workspace root on purpose and never
-  spans two roots silently.
+- **`.juicer/` ownership is enforced,** not just documented: only
+  manifest-recorded files are ever deleted, and only after every entry
+  passes confinement.
 - **Adapters own what they write.** `Adapter.owned_paths()` bounds an
-  adapter's writes *and* its deletions at write time, at manifest load
-  time and at apply time — checked before any read or delete, not after.
-- **Approval ≠ authentication.** `juicer status` states plainly what the
-  record proves (a process named itself) and what it does not.
+  adapter's writes *and* its deletions — checked by `write_generated()`
+  during sync, and again when a manifest is loaded, before any read or
+  delete. A planted manifest entry cannot remove user source,
+  `AGENTS.md` or another harness's settings.
+- **Symlinked sources are refused.** A worker or skill resolving outside
+  the project and kit roots is refused when a command names it and
+  skipped with a warning when `sync` enumerates it, so a committed
+  symlink cannot pull outside content into generated harness files.
+- **A worker filename is content.** Names must match
+  `^[a-z][a-z0-9-]*$` before rendering: the name is embedded in the
+  provenance comment and the Codex TOML `name` field, so
+  `evil-->inject.md` could otherwise close a comment or inject a key.
+- **Permission changes are not silent.** `juicer sync` snapshots the
+  permission configuration of every generated file it is about to
+  rewrite and warns on stderr when it moves. Those mirrors are
+  gitignored, so without this a permission change would be invisible in
+  a pull request. The warning reports movement, not direction.
 
-### Fixed
+### State integrity
 
-- **Ship approval records `code_binding`** (`sha` / `failed` / `none`).
-  Outside a git repository it stays usable but warns, and `juicer status`
-  repeats the warning: such an approval covers plan, mission and unit,
-  not source changes.
-- **`juicer status` is read-only** — it no longer creates
-  `.juicer/mission.md` or rewrites `state.json` as a side effect of being
-  asked for a status.
+- **`juicer status` is read-only.** It no longer creates
+  `.juicer/mission.md` or rewrites `state.json` as a side effect of
+  being asked for a status.
 - **`juicer mission` writes inside the state lock**, so no reader can
-  observe new state with an old mission or the reverse, and a refused
-  mission write leaves state untouched.
-- **`sync` warns when generated permissions change.** Permission-bearing
-  lines are snapshotted before every rewrite and reported on stderr;
-  generated mirrors are gitignored, so without this a permission change
-  would be invisible in a pull request.
+  observe new state with an old mission (or the reverse), and a refused
+  mission write leaves the state untouched.
+
+### Approval / gates
+
+- **Approvals are bound to content.** `juicer approve` records the plan
+  digest, mission digest and `mission_id`; editing either file
+  afterwards invalidates the record until `juicer approve` runs again,
+  with the reason reported by `juicer status` and returned by
+  `juicer start`. `done` became a valid source state for `approve` so a
+  plan edited after `finish` can be re-approved before shipping.
+- **Recorded approval ≠ authenticated human approval.** `juicer status`
+  prints the plan and ship verdicts on stderr stating what the record
+  proves and what it does not. README, both guides and
+  `docs/security.md` use the same distinction.
+- **Ship approval records `code_binding`** — `sha` in a git repository,
+  `failed` when git errors, `none` outside one. The last two are usable
+  but warn, in `juicer status` and at approval time: such an approval
+  covers plan, mission and unit, not source changes.
+- **README no longer claims four enforced gates.** Gates 2 and 3 are
+  labelled workflow conventions, with mechanical / convention /
+  harness-dependent / recorded-evidence called out per gate.
+
+### Filesystem
+
+- **Nested `init` is refused by default.** The error explains the
+  `--nested` opt-in, which creates a separate workspace root on purpose;
+  a test asserts the two roots never span.
 - **`.gitignore` lists exact generated paths** instead of whole harness
-  directories, so `opencode.json`, `.claude/settings.json` and friends
-  stay tracked. A stale managed block is rewritten in place.
-- **`init` and `render` ship pristine templates** (`.juicer/templates/`)
-  instead of this repository's live workflow state.
-- **Adapter `contract_version` 1 → 2**, documented in the adapter
-  contract: `write_generated()` requires `root=` and output is bound to
-  `owned_paths()`.
-- **A hostile filename can no longer reach generated content.** Worker
-  names must match `^[a-z][a-z0-9-]*$` before they are rendered — the
-  name travels into the provenance comment and the Codex TOML `name`
-  field, so it could otherwise close a comment or inject a key.
-- **Manifest rejection messages are accurate**: they say what will not
-  happen (nothing read, deleted, recorded) rather than the blanket
-  "no files touched", which was false for one call site.
-- **A missing `fcntl` now warns once** that the advisory lock is not
+  directories, so `opencode.json`, `.claude/settings.json` and similar
+  stay tracked. A stale managed block is rewritten in place and lines
+  outside it are never touched.
+- **`init` and `render` ship pristine templates** from
+  `.juicer/templates/` instead of this repository's live workflow state.
+
+### Adapters
+
+- **`contract_version` 1 → 2** in every kit `adapter.yaml`, with
+  `kit.yaml`'s `adapter_contract.version` matching. v2 makes `root=` a
+  required keyword on `write_generated()` and binds output to
+  `owned_paths()`; `docs/adapter-contract.md` documents the breaking
+  change and the migration steps. The field stays metadata —
+  `bin/juicer` does not read `adapter.yaml` at runtime.
+
+### CLI
+
+- **Rejection messages say what will not happen.** Manifest failures
+  name the deletes and records they prevent instead of the blanket
+  "no files touched", which was untrue at one call site.
+- **A missing `fcntl` warns once** that the advisory lock is not
   enforced and only the revision fence applies.
-- **`juicer capabilities` prints `capabilities (declared)`** — the
-  values are an adapter's self-declaration, not a measurement;
-  `discover` is the observed half.
+- **`juicer capabilities` prints `capabilities (declared)`** — an
+  adapter's self-declaration, not a measurement. `discover` is the
+  observed half.
 
-### Changed
+### Documentation
 
-- **CI**: actions pinned to full commit SHA with a version comment,
-  `persist-credentials: false`, job timeouts, `pytest`/`pyyaml` pinned to
-  versions that support 3.8–3.13, and a `macos-latest` matrix entry
-  (3.8 excluded — no arm64 build).
-- **Security test coverage** grew to 174 tests: approval binding, source
-  trust, ownership, nested-init refusal, read-only status, dry-run
-  purity, permission-change warnings, template provenance, hostile
-  filenames and lock-downgrade reporting.
-- `docs/security.md` states the threat model, trust boundary, approval
-  model, harness-permission matrix and the full list of limitations.
-- `docs/GUIDE.md` and `docs/GUIDE.pt-BR.md` are synchronized on the
-  security and approval model.
+- New `docs/security.md`: threat model, trust boundary, approval model
+  (targets and invalidation), filesystem boundary, secrets, harness
+  permissions with per-harness enforced-vs-convention, prompt-injection
+  posture, and 11 known limitations.
+- `README.md` gates and security sections rewritten to distinguish
+  enforcement, convention, harness dependence and recorded evidence,
+  with the trust boundary diagram.
+- `docs/GUIDE.md` and `docs/GUIDE.pt-BR.md` are semantically
+  synchronized on installation, nested init, approval terminology,
+  generated permissions, `status`/`sync` semantics and the security
+  model.
+- `docs/adapter-contract.md`: contract section retitled, manifest rules
+  extended with ownership, v1 → v2 migration added.
+- `docs/architecture.md`: sections on locking, root confinement and the
+  trust boundary; `security.md` is authoritative where they overlap.
+- `docs/installation.md` and `adapters/README.md` reviewed against the
+  implementation.
+
+### CI
+
+- Actions pinned to full commit SHA with a version comment,
+  `persist-credentials: false`, job timeouts, and `pytest`/`pyyaml`
+  pinned to versions supporting 3.8–3.13.
+- Matrix is `ubuntu-latest` + `macos-latest` (Python 3.8 excluded on
+  macOS — no arm64 build). The sync job still does write-then-check.
+
+### Test suite
+
+174 tests (was 112 at the start of the audit): approval binding, source
+trust, ownership, nested-init refusal, read-only status, dry-run purity,
+permission-change warnings, template provenance, hostile filenames,
+lock-downgrade reporting, gitignore precision and version consistency.
 
 ### Not in this release
 
@@ -100,7 +147,6 @@ mechanism behind it.
   skills and workflows.
 - No identity authentication, no secret scanner, no network or sandbox
   controls — documented in `docs/security.md` §8, not implied.
-
 ## 2.3.0 — 2026-09-28
 
 Security and coverage release over 2.2.0 (post-release audit). Three

@@ -78,7 +78,7 @@ def write_adapter(root, name, source):
     directory = root / "adapters" / name
     directory.mkdir(parents=True)
     (directory / "adapter.py").write_text(source)
-    (directory / "adapter.yaml").write_text("contract_version: 1\n")
+    (directory / "adapter.yaml").write_text("contract_version: 2\n")
     return directory
 
 

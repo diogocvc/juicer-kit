@@ -653,8 +653,8 @@ def _validate_manifest(adapter, manifest):
     if unsafe:
         fail(f"adapter {adapter.id!r} manifest contains {len(unsafe)} unsafe "
              "entr" + ("y" if len(unsafe) == 1 else "ies")
-             + " (aborting: nothing will be read, deleted or recorded): "
-             + "; ".join(unsafe))
+             + " (aborting: no file will be deleted and no manifest entry "
+             "recorded): " + "; ".join(unsafe))
 
 def _validate_change_paths(adapter, changes):
     unsafe = []

@@ -142,21 +142,27 @@ Uma sessão de chat é temporária. O estado da missão é persistente. Uma sess
 
 ## 7. Controle humano e gates de aprovação
 
-O Juicer define quatro gates. Dois são impostos pelo CLI, dois são
-convenções que só humanos e agentes conseguem sustentar:
+O Juicer define quatro gates. O que realmente te impede varia por gate:
+
+- **mecânico** — `bin/juicer` se recusa e sai com código 1;
+- **convenção** — nada no CLI te impede; só humanos e agentes sustentam;
+- **dependente do harness** — o Juicer escreve configuração que um
+  harness *pode* acatar, mas não consegue verificar (`security.md` §6);
+- **evidência registrada** — o Juicer persiste um registro que um
+  comando posterior lê. Um registro nunca é uma barreira.
 
 | # | Gate | Tipo | O que realmente te impede |
 |---|---|---|---|
-| 1 | Planejamento | mecânico | `juicer start` se recusa sem um registro de aprovação de plano válido |
+| 1 | Planejamento (**Recorded Plan Approval**) | mecânico | `juicer start` se recusa sem um registro de aprovação de plano válido |
 | 2 | Escopo | convenção | nada — o CLI grava apenas o id da unidade |
 | 3 | Verificação | convenção | nada — o CLI nunca confere se os testes rodaram |
-| 4 | Ship | mecânico | `juicer ship-approve` grava um registro ligado ao plano, à missão, à unidade e (num repositório git) ao estado do código; `juicer status` o reporta |
+| 4 | Ship (**Recorded Ship Approval**) | gate mecânico + evidência registrada | `juicer ship-approve` grava um registro ligado ao plano, à missão, à unidade e (num repositório git) ao estado do código; `juicer status` o reporta. O CLI em si não executa nenhum comando de produção, então a skill de release que confere a flag é uma regra, não uma barreira |
 
 Comandos:
 
 ```bash
-./bin/juicer approve
-./bin/juicer ship-approve
+./bin/juicer approve        # Recorded Plan Approval
+./bin/juicer ship-approve   # Recorded Ship Approval
 ```
 
 Ambos exigem uma identidade: o usuário do sistema quando rodados em um
@@ -164,7 +170,11 @@ TTY, ou um `--by=<id>` explícito (por exemplo `--by=ci`). Sem um dos
 dois, saem com código 1. O registro guarda `by`, `at`, `via`, `revision`
 e o digest do alvo aprovado. Ele prova *que um registro foi gravado por
 um processo que se identificou* — **não** prova que um humano em
-particular estava no teclado. Veja [`security.md`](security.md).
+particular estava no teclado. Essa distinção é exatamente a diferença
+entre uma aprovação *registrada* e uma *autenticada*: o Juicer não faz
+autenticação. Um harness pode adicionar sua própria confirmação na
+frente desses comandos; o Juicer nem fornece nem verifica isso. Veja
+[`security.md`](security.md) §3.
 
 A aprovação cobre o conteúdo que ela aprovou. Editar
 `.juicer/plan.md` ou `.juicer/mission.md` depois invalida o registro até
@@ -276,6 +286,16 @@ Pode consumir skills portáveis e usar mecanismos nativos de agentes.
 
 Pode usar seu ambiente nativo de agentes ou um agente ACP externo. O estado do Juicer permanece independente do Zed.
 
+### Permissões geradas
+
+Cada adapter renderiza o campo canônico `access:` de cada worker no
+esquema de permissão próprio daquele harness; `docs/adapter-contract.md`
+tem o mapeamento de chaves por harness e `docs/security.md` §6 diz
+quais desses o harness realmente aplica. Os arquivos gerados são
+ignorados pelo git, então o `juicer sync` avisa no stderr sempre que a
+configuração de permissão que ele está reescrevendo muda — revise esse
+diff antes de publicar.
+
 ## 12. CLI
 
 ```bash
@@ -300,6 +320,19 @@ Pode usar seu ambiente nativo de agentes ou um agente ACP externo. O estado do J
 
 O CLI não chama um LLM. Ele gerencia estado de forma determinística enquanto o harness ativo executa o trabalho de IA. Os comandos de gate validam o estado do workflow primeiro e saem com código 1 em uma transição ilegal; `juicer status` lista os comandos disponíveis no estado atual.
 
+`juicer status` é somente leitura: ele nunca cria `.juicer/mission.md`
+nem reescreve `state.json`, e imprime os vereditos de aprovação de plano
+e de ship (com o motivo de qualquer invalidação) no stderr enquanto o
+stdout permanece JSON.
+
+`juicer sync <adapter>|all` regenera os espelhos do harness de forma
+idempotente. `--dry-run` imprime o plano e não muda nada, `--check`
+imprime o plano e sai com código 1 se houver algo pendente (o gate de
+deriva do CI), e `--force` também remove arquivos obsoletos modificados
+pelo usuário. `juicer init --nested` cria uma raiz de workspace separada
+num subdiretório de um workspace existente; sem a flag, `init` se
+recusa.
+
 ## 13. Workflows principais
 
 ### Feature
@@ -307,11 +340,11 @@ O CLI não chama um LLM. Ele gerencia estado de forma determinística enquanto o
 ```text
 finder → analyst → architect → planner
                  ↓
-         APROVAÇÃO HUMANA
+          RECORDED PLAN APPROVAL
                  ↓
         coder/editor → reviewer → tester → documenter
                  ↓
-        APROVAÇÃO HUMANA DE SHIP
+        RECORDED SHIP APPROVAL
                  ↓
              devops
 ```
@@ -333,7 +366,7 @@ finder → analyst → refactorer → reviewer → tester
 ### Release
 
 ```text
-reviewer → tester → security (quando aplicável) → APROVAÇÃO HUMANA → devops
+reviewer → tester → security (quando aplicável) → RECORDED SHIP APPROVAL → devops
 ```
 
 Workflows são estruturas de controle, não enxames autônomos obrigatórios.

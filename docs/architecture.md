@@ -107,3 +107,50 @@ The worker receives the same state whether it is:
 - started from an IDE mode
 - run in an external ACP agent
 - run in a CLI session
+
+## 6. Locking and state integrity
+
+- Every read-modify-write (`update_state`, `write_state`) runs under an
+  exclusive `flock` on `.juicer/state.lock`. The lock is reentrant
+  within one process.
+- Writes are atomic: temp file in `.juicer/`, `fsync`, then `rename`.
+- `_fenced_write` requires `revision == disk revision + 1`, so a stale
+  writer fails instead of restoring old state.
+- On a platform without `fcntl` the lock degrades to a no-op and the CLI
+  says so once on stderr; the revision fence still applies.
+
+## 7. Root discovery and confinement
+
+- Commands walk up from the working directory to the nearest directory
+  containing `.juicer/state.json`. With no workspace they fail cleanly
+  and never create one as a side effect.
+- `juicer init` targets the current directory. Creating a workspace
+  underneath an existing one requires `--nested`; the two roots stay
+  separate, and a test asserts that.
+- Every CLI write resolves strictly inside the root. Adapter output
+  additionally refuses `.juicer/`, `.git/` and `.gitignore`, and must
+  fall inside the paths the adapter declares (`agents_dir`,
+  `skills_dir`, marker file).
+- Only manifest-recorded, adapter-owned paths are ever deleted.
+
+## 8. Trust boundary
+
+```text
+Human / External Authority
+          ↓
+Harness / Environment
+          ↓
+Juicer Core
+          ↓
+      Project
+```
+
+The human decides; the harness/OS enforces shell and filesystem
+permissions; Juicer records state, gates and approvals; project content
+is untrusted input. `adapters/*/adapter.py` is executable Python and is
+not imported unless `--trust-project-adapters` or
+`JUICER_TRUST_PROJECT_ADAPTERS=1` is given.
+
+The full threat model, what is mechanical versus conventional, and the
+complete limitation list live in [`security.md`](security.md). Where the
+two documents overlap, `security.md` is authoritative.

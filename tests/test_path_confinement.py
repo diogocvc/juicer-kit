@@ -71,7 +71,7 @@ def write_project_adapter(project, source):
     directory = project / "adapters" / "outside"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "adapter.py").write_text(source)
-    (directory / "adapter.yaml").write_text("contract_version: 1\n")
+    (directory / "adapter.yaml").write_text("contract_version: 2\n")
 
 
 STATE_ADAPTER = """

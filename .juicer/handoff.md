@@ -8,9 +8,10 @@ Use this file to make a fresh agent session immediately useful.
   Release Candidate v2.4.0** (BLOCKER=0, HIGH=0, MEDIUM=0). Kit repo
   session only; `.juicer/mission.md` stays the shipped template
   ("No active mission").
-- Status: **all four phases complete and tested.** Version is 2.4.0.
-  174 tests green on 3.12, 173 + 1 skip on 3.8. Phase 4 is written but
-  not yet committed — see "What remains".
+- Status: **v2.4.0 closed out and committed.** All four phases plus the
+  documentation/version finalization are in history. 174 tests green on
+  3.12, 173 + 1 skip on 3.8, `sync --check` clean. BLOCKER 0, HIGH 0,
+  MEDIUM 0 — Security Baseline PASS for v2.4.0.
 - Not done, and explicitly forbidden until told otherwise: no tag, no
   push, no release publish.
 
@@ -74,17 +75,20 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 - PHASE 3 `eb8e264` — permission-change warning, read-only `status`,
   `contract_version` 2, precise `.gitignore`, mission write inside the
   lock, SHA-pinned CI + macos matrix, `.juicer/templates/` sources.
-- PHASE 4 (this change) — L-01/L-02/L-03/L-05/L-06/L-07 fixed; version
+- PHASE 4 `b4c0a87` — L-01/L-02/L-03/L-05/L-06/L-07 fixed; version
   2.4.0 across `VERSION`, `kit.yaml`, `bin/juicer`, `.juicer/state.json`,
-  README, both guides, `CHANGELOG.md`, `tests/test_cli.py`; `adapter.yaml`
-  `contract_version` was already 2; `kit.yaml` `adapter_contract.version`
-  1 → 2 to match it.
+  README, both guides, `CHANGELOG.md`, `tests/test_cli.py`; `kit.yaml`
+  `adapter_contract.version` 1 → 2 to match the adapters.
+- RELEASE — documentation review against the implementation, then the
+  version consolidation commit: README gates/terminology/trust boundary,
+  `security.md` scope + approval targets + invalidation + prompt-injection
+  posture, adapter-contract v1→v2 migration, architecture sections 6–8,
+  both guides semantically synchronized, CHANGELOG reorganized by area,
+  `contract_version: 2` in the test fixtures.
 
 ## What remains
 
-- Commit PHASE 4 (version + LOW/hardening/docs), message pattern
-  `chore(security): …`. Nothing else is in flight.
-- Report the security baseline result to the user.
+- Nothing in flight. The release commit is the last code/doc change.
 - Requires explicit approval, do not infer: tag, push, release publish.
 
 ## Important files
@@ -155,8 +159,8 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- Commit Phase 4, then report the security baseline result to the user
-  and stop. Only tag, push or publish if the user explicitly approves it.
+- The v2.4.0 work is finished. Report the result and stop.
+- Only tag, push or publish if the user explicitly approves it.
 
 ## Verification evidence
 
@@ -167,6 +171,16 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
   adapters up to date, exit 0 (mirrors the CI sync job).
 - `pyflakes` on `bin/juicer`, `adapters/*.py`, `tests/*.py` → only the
   five pre-existing warnings carried from before this mission.
+- Version sweep → `2.4.0` in `VERSION`, `kit.yaml`, `bin/juicer` (banner
+  + two `kit_version` literals), `.juicer/state.json`, README, both
+  guides, `CHANGELOG.md`, `tests/test_cli.py`; `contract_version: 2` in
+  all five `adapter.yaml` and in `kit.yaml` `adapter_contract.version`.
+  No stray `2.2.0`/`2.3.0`/"Contract v1" outside the CHANGELOG history
+  and the adapter-contract migration section.
+- Doc-vs-code probes during the final documentation review: invalid
+  `access:` → `error: worker … invalid access …`, exit 1 (claim kept);
+  invalid `tier:` → sync exits 0, so the contract doc's
+  "`access`/`tier` abort sync" claim was corrected to `access` only.
 - Attack replays after Phase 2: plan edit → `Blocked: the plan or mission
   changed after approval`; planted `victim.py` / `.claude/settings.json`
   manifest entries → `is not owned by this adapter`, files survive;

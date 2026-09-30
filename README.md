@@ -23,9 +23,12 @@ The repository is the source of truth. Agent sessions are replaceable workers.
    - Plans require approval before execution.
    - High-impact actions require explicit approval.
    - The user can stop, redirect, skip or delegate any unit of work.
-   - "Approval" here means a record written by `juicer approve` /
+   - "Approval" means a **Recorded Plan Approval** or **Recorded Ship
+     Approval**: a record written by `juicer approve` /
      `juicer ship-approve`. It records *who* and *when*; it does not
-     authenticate the person behind the keyboard. See
+     authenticate the person behind the keyboard, and it is not a
+     barrier — it is evidence a later step reads. See
+     [Safety gates](#safety-gates) and
      [Security and trust boundary](#security-and-trust-boundary).
 
 2. **State lives in the repository**
@@ -122,7 +125,7 @@ DISCOVER
   ↓
 PLAN
   ↓
-PLAN APPROVAL (recorded)
+RECORDED PLAN APPROVAL
   ↓
 EXECUTE ONE UNIT
   ↓
@@ -136,7 +139,7 @@ REVIEW
   ↓
 TEST
   ↓
-SHIP APPROVAL (recorded)
+RECORDED SHIP APPROVAL
 ```
 
 The orchestrator is intentionally **not required** for this flow.
@@ -181,8 +184,8 @@ The important invariant is not the invocation syntax. The invariant is the **rol
 
 ## Safety gates
 
-The kit defines four gates. They are **not** all enforced the same way,
-and the difference matters:
+The kit defines four gates. What actually stops you differs per gate, and
+the difference matters:
 
 - **Mechanically enforced** — `bin/juicer` refuses the command and exits
   1. Only the shell boundary, file permissions and the harness can be
@@ -190,18 +193,28 @@ and the difference matters:
 - **Workflow convention** — nothing in the CLI stops you. Compliance
   depends on the agent (or human) following the contract. Treat these as
   process rules, not barriers.
+- **Harness-dependent** — Juicer writes configuration a harness *may*
+  honour. Juicer cannot verify that it does; see
+  [`docs/security.md`](docs/security.md) §6 for what each harness
+  actually enforces.
+- **Recorded evidence** — Juicer persists a record that a later command
+  or a human reads. A record is evidence, never a barrier: nothing in
+  Juicer stops a process that ignores it.
 
-| Gate | Kind | Enforcement point |
+| Gate | Kind | What actually stops you |
 |---|---|---|
-| 1 — Plan | mechanical | `juicer start` and `juicer ship-approve` refuse without a valid, unmodified plan approval record |
-| 2 — Change | convention | none — `juicer start UNIT` records only the unit id; scope and acceptance criteria live as prose in `.juicer/plan.md` |
-| 3 — Verify | convention | none — `juicer checkpoint done` and `juicer finish` transition on state alone; the CLI never checks that tests ran |
-| 4 — Ship | mechanical | `ship_approved` + a ship approval record bound to the approved target; release skills and workflows read it via `juicer status` |
+| 1 — Plan (Recorded Plan Approval) | mechanical | `juicer start` and `juicer ship-approve` refuse without a valid, unmodified plan approval record |
+| 2 — Change | convention | nothing — `juicer start UNIT` records only the unit id; scope and acceptance criteria live as prose in `.juicer/plan.md` |
+| 3 — Verify | convention | nothing — `juicer checkpoint done` and `juicer finish` transition on state alone; the CLI never checks that tests ran |
+| 4 — Ship (Recorded Ship Approval) | mechanical gate + recorded evidence | `juicer ship-approve` writes `ship_approved` and a record bound to the approved target; the CLI itself runs nothing, so release skills and workflows must read the flag via `juicer status` — that last step is a rule, not a barrier |
 
-### Gate 1 — Plan
+### Gate 1 — Plan (Recorded Plan Approval)
 No `juicer start` before the current mission plan is approved. The
-approval record stores the plan and mission digests; editing either
-after approval invalidates it until `juicer approve` runs again.
+record stores the plan and mission digests plus `mission_id`; editing
+either file after approval invalidates it until `juicer approve` runs
+again, and `juicer status` reports the reason. The record is evidence
+that a process naming itself as `by` approved that exact content — it is
+not proof that a specific person was at the keyboard.
 
 ### Gate 2 — Change
 Every implementation unit records its scope and acceptance criteria.
@@ -215,30 +228,57 @@ has been executed or an explicit exception is recorded. This is a rule
 for humans and agents. The CLI has no verification field and does not
 confirm that any test ran.
 
-### Gate 4 — Ship
-Production-impacting changes require an approval record, stored as
+### Gate 4 — Ship (Recorded Ship Approval)
+Production-impacting changes require a recorded approval, stored as
 `ship_approved: true` plus a `ship_approval` object in
 `.juicer/state.json` by `./bin/juicer ship-approve`. The record binds the
-plan, mission, active unit and (in a git repository) the commit and
-working-tree state, so later changes invalidate it. The CLI runs no
-production command itself; release skills and workflows must verify the
-flag via `./bin/juicer status` and stop while it is `false`. That final
-step is a rule the harness and the human must uphold — the CLI cannot
-force a process to stop.
+plan, mission and active unit, plus — in a git repository — the commit
+and working tree (`code_binding: "sha"`). Outside git, or when git fails,
+`code_binding` is `"none"` / `"failed"` and `juicer status` warns: that
+approval does **not** cover source changes. The CLI runs no production
+command itself; release skills and workflows must verify the flag via
+`./bin/juicer status` and stop while it is `false`. That final step is a
+rule the harness and the human must uphold — the CLI cannot force a
+process to stop.
+
+### Identity, not authentication
+Both approval commands require an identity: the OS user when stdin is a
+TTY, otherwise an explicit `--by=<id>`. The record stores `by`, `at`,
+`via`, `revision` and the approved target digest. It proves that a
+process identifying itself as `by` wrote the record; it does **not**
+prove who was at the keyboard. The harness may add its own confirmation
+in front of these commands — Juicer does not provide that and does not
+verify it.
 
 ## Security and trust boundary
 
 What `juicer` itself guarantees, what it delegates to the harness, and
 what it cannot guarantee at all, is documented in
-[`docs/security.md`](docs/security.md). In short:
+[`docs/security.md`](docs/security.md).
 
-- **Juicer core** confines every write to the project root, keeps
-  `state.json` atomic and revision-fenced, and refuses illegal gate
-  transitions.
-- **The harness / OS** provides isolation, shell permissions, filesystem
-  permissions and command confirmation.
-- **The human** owns approval decisions. Juicer records an identity; it
-  does not authenticate a person.
+```text
+Human / External Authority
+          ↓
+Harness / Environment
+          ↓
+Juicer Core
+          ↓
+      Project
+```
+
+In short:
+
+- **Human / External Authority** owns the decision to approve. Juicer
+  records an identity; it does not authenticate a person.
+- **Harness / Environment** is where isolation, shell permission, the OS
+  filesystem boundary and command confirmation come from. Juicer neither
+  provides nor verifies any of them.
+- **Juicer Core** confines every write to the project root, keeps
+  `state.json` atomic and revision-fenced, refuses illegal gate
+  transitions, and binds approvals to the content they approved.
+- **Project** is untrusted input: `agents/*.md`, `.agents/skills/**`,
+  `.juicer/*.md` and `adapters/*/adapter.py` are all repository content
+  that a compromised repository controls.
 
 `.juicer/state.json` is an ordinary file in the working tree. Any process
 running with your privileges can rewrite it. The file's integrity is only

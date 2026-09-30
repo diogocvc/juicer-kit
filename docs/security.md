@@ -9,6 +9,22 @@ Wording rule used throughout: a control is **mechanical** only when
 that depends on an agent or a human choosing to comply is labelled a
 **convention**.
 
+### What Juicer controls
+
+Exactly four things:
+
+- which paths the CLI and adapters are allowed to write;
+- which files a sync is allowed to delete;
+- which state transitions are legal;
+- what gets recorded when a command claims an approval.
+
+Everything else — the OS boundary, the harness's permission system,
+whether a person is at the keyboard, what an agent decides to do with
+file contents — is outside Juicer. It is either delegated explicitly
+(§2) or listed as a limitation (§8). This document does not describe
+intended behaviour; every sentence here is meant to be greppable in
+`bin/juicer`, `adapters/_base.py` or `tests/`.
+
 ---
 
 ## 1. Threat model
@@ -33,7 +49,7 @@ project, and the host environment.
 └──────────────────┬───────────────────┘
                    │
 ┌──────────────────▼───────────────────┐
-│ HARNESS / ENVIRONMENT                │  isolation, shell perms, OS boundary
+│ HARNESS / OS / ENVIRONMENT           │  isolation, shell perms, OS boundary
 └──────────────────┬───────────────────┘
                    │
 ┌──────────────────▼───────────────────┐
@@ -79,17 +95,45 @@ cannot verify that the harness applies it.
 
 ## 3. Approval model
 
-`juicer approve` and `juicer ship-approve` write a provenance record:
+`juicer approve` (a **Recorded Plan Approval**) and `juicer ship-approve`
+(a **Recorded Ship Approval**) write a provenance record:
 
 ```json
 { "by": "<id>", "at": "<iso8601>", "via": "interactive|automation",
-  "revision": <int>, "target": { "digest": "sha256…", … } }
+  "revision": <int>, "target": { "parts": { … }, "digest": "sha256…" } }
 ```
 
 - `via: interactive` is only used when stdin is a TTY and `--by` was not
   given; the OS username becomes `by`.
 - `via: automation` is used whenever `--by=<id>` is passed.
 - With no TTY and no `--by`, the command exits 1. Nothing is recorded.
+
+### The approved target
+
+The record does not float: it names the exact content it covers.
+
+| Approval | `target.parts` |
+|---|---|
+| Plan (`juicer approve`) | `plan` = sha256 of `.juicer/plan.md`, `mission` = sha256 of `.juicer/mission.md`, `mission_id` |
+| Ship (`juicer ship-approve`) | `plan`, `mission`, `current_unit`, and — inside a git repository — `git_head` + a digest of `git status --porcelain` with `.juicer/` artifacts removed |
+
+### Invalidation
+
+- Editing `.juicer/plan.md` or `.juicer/mission.md` after `approve`
+  changes the digests, so the approval no longer matches. `juicer status`
+  reports `approved invalidated: plan or mission changed after approval`
+  and `juicer start` refuses with `the plan or mission changed after
+  approval`.
+- `approve` re-records against the current content; there is no override
+  flag.
+- Ship approval is re-checked before every state write while
+  `ship_approved` is true (`_refresh_ship_approval`): if plan, mission,
+  active unit or the git state moved, the flag is set back to `false`
+  before the write.
+- A missing or malformed record has the same effect as an invalidated
+  one — the flag is ignored, never trusted on its own.
+- `.juicer/` itself is excluded from the git-dirty component, so Juicer's
+  own persistence can never invalidate an approval by itself.
 
 **What a record proves:** that a process identifying itself as `by`
 produced an approval for a specific target, at a specific state revision,
@@ -100,6 +144,15 @@ can run `./bin/juicer approve --by=<anybody>` and write to the repository
 can produce a syntactically valid record. `.juicer/state.json` is an
 ordinary working-tree file with no signature; its integrity is the OS
 file permission on the repository, nothing more.
+
+### Recorded approval vs. authenticated human approval
+
+A **recorded** approval is data Juicer wrote and can re-verify
+afterwards. An **authenticated** approval would require proving who
+attested — a signature, an SSO assertion, a hardware key. Juicer does
+neither. The `by` field is a declared identity, `via` says only how the
+value was supplied, and neither is checked against an identity provider.
+Adding out-of-band confirmation belongs to the harness (§6).
 
 Treat `via: automation` and unexpected `by` values as signals to review,
 not as authorization.
@@ -124,9 +177,20 @@ not as authorization.
   harness's settings. (`AGENTS.md` itself is `manifest=False`:
   project-owned, never recorded, never deleted by sync.)
 - Worker contracts and mirrored skills are read through symlinks. A
-  source that resolves outside the project and the kit is refused (worker
-  lookup) or skipped with a warning (skills mirror), so a committed
-  symlink cannot exfiltrate arbitrary files into generated output.
+  source that resolves outside the project and the kit is refused when a
+  command names it (`juicer worker <name>`) and skipped with a warning
+  when `sync` enumerates workers or mirrors skills, so a committed
+  symlink cannot pull outside content into a generated file.
+- A worker filename must match `^[a-z][a-z0-9-]*$` before it is
+  rendered. The name is embedded in generated content — the provenance
+  comment and the Codex TOML `name` field — so a name like
+  `evil-->inject.md` could otherwise close a comment or inject a key.
+  Non-matching names are skipped with a warning.
+- `juicer init` writes a managed `.gitignore` block listing the exact
+  paths Juicer generates, never whole harness directories, so
+  configuration the project owns (`opencode.json`,
+  `.claude/settings.json`, …) stays tracked. A stale block is rewritten
+  in place; lines outside it are untouched.
 - Known limit: confinement resolves symlinks and then writes. A process
   that swaps a path component for a symlink in that window can still win
   (TOCTOU). Defeating that requires `O_NOFOLLOW`/directory-fd discipline
@@ -184,16 +248,44 @@ agents/*.md          .agents/skills/**        AGENTS.md
 .juicer/*.md         .juicer/workflows/*.md   adapters/*/adapter.py
 ```
 
-Protected operations that require a recorded approval:
+### Mechanical protections
 
-```text
-juicer approve       juicer ship-approve
-```
+- A worker's canonical frontmatter is never copied into generated files.
+  `role:`, `access:`, `tier:` and `model:` are refused in every generated
+  artefact (`tests/test_frontmatter.py`), so repository content cannot
+  smuggle keys into a harness's permission surface. `access:` is the only
+  permission input, and it is re-rendered into each harness's fixed
+  schema rather than passed through.
+- A worker filename must match `^[a-z][a-z0-9-]*$` before rendering, so
+  a name cannot break out of the provenance comment or the Codex TOML
+  `name` field.
+- Sources resolving outside the project and the kit are refused or
+  skipped (§4), so a committed symlink cannot exfiltrate outside content
+  into a generated file.
+- Project `adapters/*/adapter.py` is not imported unless
+  `--trust-project-adapters` or `JUICER_TRUST_PROJECT_ADAPTERS=1` is
+  given.
 
-Harness-protected: anything the harness's own permission model gates
-(shell, edit, network), which is where a real barrier lives.
+### What a recorded approval gates
 
-Residual: Juicer cannot stop an agent from treating file contents as
+- `juicer start` refuses without a valid Recorded Plan Approval.
+- Release skills and workflows must read `ship_approved` from
+  `juicer status` before a production-impacting step.
+
+Neither stops an agent that is already following instructions it found
+in a file: a prompt can ask an agent to run `juicer approve` itself, and
+`juicer approve` will happily record it (§3). A recorded approval binds
+*what* was approved; it never establishes *who* approved it.
+
+### Harness-protected
+
+Anything the harness's own permission model gates — shell, edit, network
+— is where a real barrier lives. Juicer writes configuration for several
+of those surfaces (§6) but cannot verify that the harness applies it.
+
+### Residual
+
+Juicer cannot stop an agent from treating file contents as
 instructions. Separating data from instruction is the harness's and the
 operator's responsibility.
 

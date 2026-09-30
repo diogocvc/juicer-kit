@@ -266,7 +266,7 @@ def test_adapter_cannot_generate_paths_it_does_not_own(tmp_path):
     assert run(project, "init").returncode == 0
     outside_adapter = (project / "adapters" / "stray")
     outside_adapter.mkdir(parents=True)
-    (outside_adapter / "adapter.yaml").write_text("contract_version: 1\n")
+    (outside_adapter / "adapter.yaml").write_text("contract_version: 2\n")
     (outside_adapter / "adapter.py").write_text(textwrap_dedent_adapter())
 
     r = run(project, "sync", "stray", "--trust-project-adapters")
