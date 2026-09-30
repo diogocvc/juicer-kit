@@ -144,11 +144,17 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Known problems
 
-- `.juicer/handoff.md` (and `decisions.md`) ship to new projects via
-  `juicer init` `copy_missing`, so kit-session text lands in project
-  templates. Pre-existing pattern; needs a design decision before changing.
-- Harness mirrors are gitignored, so CI cannot detect a stale local mirror;
-  the write-then-check job only proves determinism.
+- Harness mirrors are gitignored by design, so they never exist in a
+  fresh checkout and there is nothing in git for CI to compare against.
+  The `sync` job therefore writes then checks, which proves generation is
+  deterministic from the committed sources — it deliberately does not
+  prove that a developer's local mirrors are current. `sync --check`
+  proves that, but nothing runs it automatically: no worker, skill,
+  workflow or command invokes it, so a stale local mirror survives until
+  someone runs `sync` by hand. Candidate for 2.4.1: make
+  `juicer ship-approve` refuse while `sync --check` reports pending.
+  That would be a new gate, so it needs its own test and explicit
+  approval; do not treat this bullet as authorizing it.
 - V2 OpenCode `permissions:` is parsed but not applied upstream (#50598);
   re-check when bumping the default.
 - Path confinement is TOCTOU-prone by construction: the check resolves a
@@ -159,8 +165,13 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- The v2.4.0 work is finished. Report the result and stop.
-- Only tag, push or publish if the user explicitly approves it.
+- Release operations for v2.4.0 are approved by the user:
+  tag `v2.4.0`, push `main` and the tag, then publish the release.
+- Publishing a GitHub Release still needs `gh` or a token — neither is
+  present in this environment. Push what can be pushed and hand the
+  remaining step back to the user.
+- Nothing else is pending. Any new gate (see Known problems) waits for
+  its own approval.
 
 ## Verification evidence
 
