@@ -39,7 +39,7 @@ def test_all_adapters_have_contract():
     for name in ADAPTERS:
         data = load_yaml(name)
         assert data["id"] == name
-        assert data["contract_version"] == 1
+        assert data["contract_version"] == 2
         assert data["canonical_state"] == ".juicer"
         assert data["canonical_skills"] == ".agents/skills"
         assert data["canonical_agents"] == "agents"

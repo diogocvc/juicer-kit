@@ -4,6 +4,7 @@ Covers audit findings R8 (lost update / stale-write resurrection) and the
 BUG-01/BUG-02/BUG-03 fixes.
 """
 
+import argparse
 import getpass
 import importlib.machinery
 import importlib.util
@@ -348,3 +349,46 @@ def test_ship_requires_valid_plan_approval(tmp_path):
     assert r.returncode == 1
     assert "approval record is missing or invalid" in r.stderr
     assert state(tmp_path)["ship_approved"] is False
+
+
+# --- M-06: mission and state move together ---------------------------------
+
+def test_mission_write_failure_leaves_state_unchanged(tmp_path):
+    """The mission file and the state describing it are written under one lock.
+
+    Writing state first and mission second would let a reader holding the
+    lock observe new state with an old mission — or persist new state
+    when the mission write was refused.
+    """
+    assert run(tmp_path, "init").returncode == 0
+    cli = load_cli("juicer_cli_m06")
+    cli.bind_root(tmp_path)
+    state_before = (tmp_path / ".juicer" / "state.json").read_bytes()
+    mission_before = (tmp_path / ".juicer" / "mission.md").read_bytes()
+
+    def explode(path, text):
+        raise OSError("simulated disk failure")
+
+    cli._atomic_write_text = explode
+    with pytest.raises(OSError):
+        cli.cmd_mission(argparse.Namespace(objective="New objective"))
+
+    assert (tmp_path / ".juicer" / "state.json").read_bytes() == state_before
+    assert (tmp_path / ".juicer" / "mission.md").read_bytes() == mission_before
+
+
+def test_mission_writes_both_files_in_one_lock(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    cli = load_cli("juicer_cli_m06b")
+    cli.bind_root(tmp_path)
+    depth = {"seen": -1}
+
+    original = cli._fenced_write
+    def spy(state):
+        depth["seen"] = cli._lock_depth
+        return original(state)
+    cli._fenced_write = spy
+
+    cli.cmd_mission(argparse.Namespace(objective="Locked mission"))
+    assert depth["seen"] == 1, "state was written outside the lock"
+    assert "Locked mission" in (tmp_path / ".juicer" / "mission.md").read_text()

@@ -162,9 +162,12 @@ Two caveats:
 
 1. The source of `access:` is `agents/*.md`, which is project-owned
    content. Changing it changes the generated permissions; `juicer sync`
-   warns when a worker's access widens.
-2. Generated harness directories are gitignored, so these files are not
-   reviewed in a pull request. Review `agents/*.md` instead.
+   snapshots the permission configuration of every file it is about to
+   rewrite and warns when it moves. The warning does not judge direction
+   — widening and narrowing look the same, so read the change yourself.
+2. The generated artefacts are gitignored, so they are not reviewed in a
+   pull request. Review `agents/*.md` instead; the sync warning is the
+   in-repo signal that the effective configuration changed.
 
 To make `juicer approve` / `juicer ship-approve` require an out-of-band
 confirmation, configure it in the harness — for example a Claude Code

@@ -7,7 +7,7 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
 CLI = KIT / "bin" / "juicer"
-TEMPLATE = KIT / ".juicer" / "mission.md"
+TEMPLATE = KIT / ".juicer" / "templates" / "mission.md"
 
 
 def run(cwd, *args):
@@ -99,3 +99,28 @@ def test_mission_resets_approvals_and_records(tmp_path):
     assert "approval" not in s
     assert "ship_approval" not in s
     assert s["current_unit"] is None
+
+
+def load_cli(name="juicer_cli_mission"):
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader(name, str(CLI))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def test_render_reads_the_shipped_template_not_live_state(tmp_path):
+    """M-09: rendering must never pick up this repository's own mission."""
+    sentinel = tmp_path / "mission-template.md"
+    sentinel.write_text(TEMPLATE.read_text().replace(
+        "Define measurable success criteria.", "SENTINEL CRITERIA."))
+    cli = load_cli()
+    assert cli.MISSION_TEMPLATE == TEMPLATE
+    cli.MISSION_TEMPLATE = sentinel
+
+    rendered = cli.render_mission("Objective here")
+    assert "SENTINEL CRITERIA." in rendered
+    assert "Objective here" in rendered
+    assert "Define measurable success criteria." not in rendered

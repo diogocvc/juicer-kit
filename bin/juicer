@@ -17,11 +17,22 @@ STATE = ROOT / ".juicer" / "state.json"
 MISSION = ROOT / ".juicer" / "mission.md"
 PLAN = ROOT / ".juicer" / "plan.md"
 HANDOFF = ROOT / ".juicer" / "handoff.md"
+# Pristine sources shipped to new projects. The kit's own
+# .juicer/mission.md and .juicer/plan.md are this repository's live
+# workflow state and must never be used as templates.
+MISSION_TEMPLATE = KIT / ".juicer" / "templates" / "mission.md"
+PLAN_TEMPLATE = KIT / ".juicer" / "templates" / "plan.md"
 
 WORKER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 MISSION_MARKER = "## Success criteria"
-PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/runtime/",
-                   ".juicer/state.lock", ".juicer/state.json.tmp")
+PROJECT_MIRRORS = (
+    ".opencode/agents/", ".opencode/juicer-kit.md",
+    ".claude/agents/", ".claude/skills/", ".claude/juicer-kit.md",
+    ".cursor/agents/", ".cursor/juicer-kit.md",
+    ".codex/agents/", ".codex/juicer-kit.md",
+    ".juicer/runtime/", ".juicer/state.lock", ".juicer/state.json.tmp",
+)
+GITIGNORE_MARKER = "# Juicer Kit — generated mirrors"
 
 sys.path.insert(0, str(KIT / "adapters"))
 from _base import (Ctx, confine_generated, confine_manifest_entry,  # noqa: E402
@@ -181,7 +192,7 @@ def ensure_mission():
     confine_write(mission, what="mission file")
     if not mission.exists():
         mission.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(KIT / ".juicer" / "mission.md", mission)
+        shutil.copy2(MISSION_TEMPLATE, mission)
 
 def ensure_runtime():
     confine_write(ROOT / ".juicer" / "state.json", what="state file")
@@ -424,18 +435,35 @@ def available_commands(status):
 
 
 def ensure_project_gitignore():
+    """Track harness *configuration*, ignore only what Juicer generates.
+
+    Blanket directory ignores (``.opencode/``, ``.claude/``, ...) would
+    silently untrack settings files the user owns, so the managed block
+    lists the exact generated paths instead. The block is rewritten in
+    place when the pattern list changes; lines outside it are never
+    touched.
+    """
     path = ROOT / ".gitignore"
     confine_write(path, what="gitignore")
-    existing = path.read_text().splitlines() if path.exists() else []
-    missing = [line for line in PROJECT_MIRRORS if line not in existing]
-    if not missing:
-        return
-    text = "\n".join(existing)
-    if text:
-        text += "\n\n# Juicer Kit — generated mirrors\n" + "\n".join(missing) + "\n"
+    lines = path.read_text().splitlines() if path.exists() else []
+    marker = next((i for i, line in enumerate(lines)
+                   if line.strip() == GITIGNORE_MARKER), None)
+    if marker is None:
+        head, tail = list(lines), []
     else:
-        text = "# Juicer Kit — generated mirrors\n" + "\n".join(missing) + "\n"
-    path.write_text(text)
+        end = marker + 1
+        while end < len(lines) and lines[end].strip():
+            end += 1
+        if lines[marker + 1:end] == list(PROJECT_MIRRORS):
+            return
+        head, tail = lines[:marker], lines[end:]
+    while head and not head[-1].strip():
+        head.pop()
+    if head:
+        head.append("")
+    head.append(GITIGNORE_MARKER)
+    head.extend(PROJECT_MIRRORS)
+    path.write_text("\n".join(head + tail) + ("\n" if head + tail else ""))
 
 def make_ctx(**options):
     return Ctx(root=ROOT, kit=KIT, state_dir=".juicer",
@@ -676,13 +704,68 @@ def apply_manifest(adapter, changes, dry_run=False, check=False, force=False):
     return {"writes": writes, "deletes": deletes, "conflicts": conflicts,
             "current": set(current)}
 
+PERMISSION_KEYS = ("permission", "permissions", "tools", "readonly", "sandbox_mode")
+
+def _read_text_safe(path):
+    try:
+        return Path(path).read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+def _permission_lines(text):
+    """Permission-bearing lines of a generated harness file.
+
+    Generated mirrors are gitignored, so a change to a project's
+    `agents/*.md` that alters what the harness will allow would be
+    invisible in a pull request. `sync` snapshots these lines before it
+    writes and warns when they move.
+    """
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        close = next((i for i in range(1, len(lines))
+                      if lines[i].strip() == "---"), len(lines))
+        region = lines[1:close]
+    else:
+        region = []
+        for line in lines:
+            if '"""' in line:
+                break  # TOML multi-line value: the body is not config
+            region.append(line)
+    out, index = [], 0
+    while index < len(region):
+        bare = region[index].strip()
+        head = bare.split(":", 1)[0].split("=", 1)[0].strip().strip("\"'")
+        if bare and head in PERMISSION_KEYS:
+            out.append(bare)
+            index += 1
+            while index < len(region) and (not region[index].strip()
+                                           or region[index][0].isspace()):
+                if region[index].strip():
+                    out.append(region[index].strip())
+                index += 1
+            continue
+        index += 1
+    return out
+
+def _permission_snapshot(paths):
+    snapshot = {}
+    for rel in paths:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        text = _read_text_safe(path)
+        if text is not None:
+            snapshot[rel] = _permission_lines(text)
+    return snapshot
+
 def _sync_one(adapter, ctx, dry_run, check, force, verb="synced", install=False):
     manifest = load_manifest(adapter.id)
     _validate_manifest(adapter, manifest)
-    pre = {}
+    pre, before = {}, {}
     if not (dry_run or check):
         pre = {rel: sha256_file(ROOT / rel)
                for rel in manifest if (ROOT / rel).exists()}
+        before = _permission_snapshot(manifest)
     method = adapter.install if install else adapter.sync
     with ownership_scope(adapter):
         changes = _call(method, ctx, dry_run=dry_run or check)
@@ -691,6 +774,9 @@ def _sync_one(adapter, ctx, dry_run, check, force, verb="synced", install=False)
         info["regenerated"] = [rel for rel in pre
                                if rel in info["current"]
                                and pre[rel] != manifest.get(rel)]
+        after = _permission_snapshot(info["current"])
+        info["permission_changes"] = [rel for rel in after
+                                      if rel in before and after[rel] != before[rel]]
     return _report_sync(adapter.id, info, dry_run, check, force, verb=verb)
 
 def _report_sync(adapter_id, info, dry_run, check, force, verb="synced"):
@@ -712,6 +798,9 @@ def _report_sync(adapter_id, info, dry_run, check, force, verb="synced"):
     print(f"{verb}: {adapter_id} ({len(writes)} written, {len(deletes)} stale removed)")
     for rel in info.get("regenerated", ()):
         print(f"regenerated user-modified file: {rel}", file=sys.stderr)
+    for rel in info.get("permission_changes", ()):
+        print(f"permission configuration changed: {rel} — review it before "
+              "shipping; generated mirrors are gitignored", file=sys.stderr)
     for rel in conflicts:
         print(f"conflict: {rel} (modified since generation; use --force to remove)",
               file=sys.stderr)
@@ -752,7 +841,7 @@ def render_mission(objective):
     replaced and every other section (Constraints, Scope, Decisions, ...)
     returns to its pristine template state.
     """
-    template = (KIT / ".juicer" / "mission.md").read_text()
+    template = MISSION_TEMPLATE.read_text()
     if MISSION_MARKER not in template:
         fail(f"kit mission template is missing the {MISSION_MARKER!r} marker")
     if "## Objective" not in template:
@@ -778,8 +867,9 @@ def cmd_init(args):
                  "  across two roots. run `juicer init` from the project root, or\n"
                  "  pass --nested to create a separate workspace here on purpose.")
     ensure_runtime()
-    for name in ["AGENTS.md", ".juicer/mission.md", ".juicer/plan.md"]:
-        copy_missing(KIT / name, ROOT / name)
+    copy_missing(KIT / "AGENTS.md", ROOT / "AGENTS.md")
+    copy_missing(MISSION_TEMPLATE, ROOT / ".juicer" / "mission.md")
+    copy_missing(PLAN_TEMPLATE, ROOT / ".juicer" / "plan.md")
     for name in ("handoff", "decisions", "learnings"):
         copy_missing(KIT / ".juicer" / "templates" / f"{name}.md",
                      ROOT / ".juicer" / f"{name}.md")
@@ -811,7 +901,10 @@ def _approval_summary(state, valid, label, key):
               "code being released.", file=sys.stderr)
 
 def cmd_status(_):
-    ensure_runtime()
+    # Read-only by design: status must never create mission.md or state.
+    # Root discovery already proved .juicer/state.json exists.
+    if not STATE.exists():
+        fail(f"missing state file {STATE}; run `juicer init` first")
     s, notes = _effective_state(read_state())
     print(json.dumps(s, indent=2))
     for note in notes:
@@ -832,12 +925,16 @@ def cmd_mission(args):
     text = render_mission(args.objective)  # fail early on template problems
     def mut(s):
         require_state("start a new mission", s.get("status"), MISSION_FROM)
+        # Written inside the same lock as the state it describes: a reader
+        # that took the lock can never observe new state with an old
+        # mission (or the reverse), and a refused mission write leaves the
+        # state untouched.
+        _atomic_write_text(MISSION, text)
         s.update({"status":"planning","mission_id":_new_mission_id(),
                   "current_unit":None,"approved":False,"ship_approved":False})
         s.pop("approval", None)
         s.pop("ship_approval", None)
     update_state(mut)
-    _atomic_write_text(MISSION, text)
     print("Mission created. Planning gate is pending.")
     print("Next: update .juicer/plan.md, then run `juicer approve`.")
 

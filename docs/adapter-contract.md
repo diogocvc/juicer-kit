@@ -232,6 +232,13 @@ Rules:
 - never write outside the project root, and never into `.juicer/`
   (`write_generated` enforces this: its ``root=`` keyword is required and
   the target must resolve inside it)
+- declare where you write. `agents_dir`, `skills_dir` and `marker_dir`
+  feed `Adapter.owned_paths()`, the allowlist a manifest-tracked path
+  must fall inside. `write_generated()` rejects anything else while your
+  `sync`/`install` runs, and `bin/juicer` rejects the same paths again
+  when it loads the manifest — before any read or delete. Files that are
+  project-owned (the `AGENTS.md` entrypoint) pass `manifest=False` and
+  are exempt.
 - `sync` only creates/updates harness mirrors; deletions belong to the
   manifest-based cleanup (see *Sync safety and the manifest* above)
 - `discover` must degrade gracefully: missing binary → `available: false`
@@ -243,7 +250,7 @@ YAML mapping with this schema:
 
 ```yaml
 id: opencode                 # must equal Adapter.id and the directory name
-contract_version: 1
+contract_version: 2
 capabilities:                # must equal Adapter.capabilities()
   skills: true
   subagents: true
@@ -258,6 +265,18 @@ canonical_agents: agents
 `tests/test_adapters.py` parses every kit `adapter.yaml` with PyYAML and
 fails CI when it is invalid YAML or its `capabilities` drift from the
 Python `capabilities()` output.
+
+### contract_version
+
+Declares which revision of this document the adapter implements. It is
+metadata only: `bin/juicer` does not read `adapter.yaml` at runtime, so
+a stale value cannot break discovery — it tells a human what the
+adapter was written against.
+
+| Version | Meaning |
+|---|---|
+| `1` | Pre-2.4.0 contract: `write_generated()` had no `root=` keyword and output was not ownership-checked. |
+| `2` | `write_generated(..., root=...)` is required; adapters must declare `agents_dir`/`skills_dir`/`marker_dir` so `owned_paths()` can bound what they may write and delete. |
 
 ## Discovery
 

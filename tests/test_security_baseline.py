@@ -1,14 +1,18 @@
 """Security baseline: approval binding, source trust, ownership, identity.
 
-Covers audit findings B-01..B-03 (regression), H-01..H-05 and M-05:
-the approval must cover the content it approves, generated harness files
-must never come from outside the project/kit, an adapter may only delete
-what it owns, init must not silently fork the workspace, and approval
-provenance must be visible and honest about what it does not prove.
+Covers audit findings B-01..B-03 (regression), H-01..H-05, M-01, M-02
+and M-05..M-07: the approval must cover the content it approves,
+generated harness files must never come from outside the project/kit, an
+adapter may only delete what it owns, init must not silently fork the
+workspace, status must be read-only, generated harness permissions must
+follow the declared access level, dry runs must touch nothing, and
+approval provenance must be visible and honest about what it does not
+prove.
 """
 
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -337,3 +341,103 @@ def test_nested_init_leaves_outer_workspace_untouched(tmp_path):
     assert "--nested" in r.stderr
     assert (tmp_path / ".juicer" / "state.json").read_bytes() == before
     assert not (inner / ".juicer").exists()
+
+
+# --- M-01: generated harness permissions come from the project's workers ---
+
+def _project_worker(path, access):
+    path.write_text(
+        "---\n"
+        "name: locked\n"
+        "description: restricted worker\n"
+        "role: locked\n"
+        f"access: {access}\n"
+        "tier: warm\n"
+        "---\n\n"
+        "# Locked\n\nBody.\n"
+    )
+
+
+def test_generated_permissions_match_declared_access(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    _project_worker(tmp_path / "agents" / "locked.md", "read-only")
+
+    assert run(tmp_path, "sync", "opencode").returncode == 0
+    generated = (tmp_path / ".opencode" / "agents" / "locked.md").read_text()
+    assert "edit: deny" in generated and "bash: deny" in generated
+    assert "access:" not in generated
+
+    assert run(tmp_path, "sync", "opencode", "--opencode-format", "v2").returncode == 0
+    generated = (tmp_path / ".opencode" / "agents" / "locked.md").read_text()
+    assert "effect: deny" in generated
+
+
+def test_invalid_project_worker_access_is_rejected(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    _project_worker(tmp_path / "agents" / "locked.md", "root")
+
+    r = run(tmp_path, "sync", "opencode")
+    assert r.returncode == 1
+    assert "invalid access" in r.stderr
+    assert not (tmp_path / ".opencode" / "agents" / "locked.md").exists()
+
+
+# --- M-02: status is read-only ---------------------------------------------
+
+def test_status_creates_no_files(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    mission = tmp_path / ".juicer" / "mission.md"
+    state_file = tmp_path / ".juicer" / "state.json"
+    mission.unlink()
+    before = state_file.read_bytes()
+
+    r = run(tmp_path, "status")
+    assert r.returncode == 0, r.stderr
+    assert not mission.exists(), "status recreated .juicer/mission.md"
+    assert state_file.read_bytes() == before, "status rewrote .juicer/state.json"
+
+
+# --- M-07: sync must not write outside a dry run ---------------------------
+
+def test_dry_run_creates_nothing(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    for name in ("agents", ".opencode/agents", ".claude/agents", ".cursor/agents",
+                 ".codex/agents", ".claude/skills"):
+        target = tmp_path / name
+        if target.exists():
+            shutil.rmtree(target) if target.is_dir() else target.unlink()
+    shutil.rmtree(tmp_path / ".juicer" / "runtime", ignore_errors=True)
+    before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
+
+    r = run(tmp_path, "sync", "all", "--dry-run")
+    assert r.returncode == 0, r.stderr
+    after = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
+    assert after == before, f"dry run wrote: {set(after) - set(before)}"
+
+
+# --- M-01: permission changes must not be silent ---------------------------
+
+def test_sync_warns_when_generated_permissions_change(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    before = (tmp_path / ".opencode" / "agents" / "coder.md").read_text()
+    assert "edit: allow" in before
+
+    worker = tmp_path / "agents" / "coder.md"
+    worker.write_text(worker.read_text().replace("access: edit",
+                                                 "access: read-only"))
+
+    r = run(tmp_path, "sync", "all")
+    assert r.returncode == 0, r.stderr
+    assert "permission configuration changed: .opencode/agents/coder.md" in r.stderr
+    assert "generated mirrors are gitignored" in r.stderr
+    after = (tmp_path / ".opencode" / "agents" / "coder.md").read_text()
+    assert "edit: deny" in after
+    # the canonical source is untouched by the warning path
+    assert "access: read-only" in worker.read_text()
+
+
+def test_sync_is_quiet_when_permissions_are_unchanged(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    r = run(tmp_path, "sync", "all")
+    assert r.returncode == 0, r.stderr
+    assert "permission configuration changed" not in r.stderr

@@ -1,5 +1,5 @@
 id: zed
-contract_version: 1
+contract_version: 2
 capabilities:
   skills: true
   subagents: false
