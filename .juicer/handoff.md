@@ -165,11 +165,13 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- Release operations for v2.4.0 are approved by the user:
-  tag `v2.4.0`, push `main` and the tag, then publish the release.
-- Publishing a GitHub Release still needs `gh` or a token — neither is
-  present in this environment. Push what can be pushed and hand the
-  remaining step back to the user.
+- **v2.4.0 is released.** The annotated tag `v2.4.0` points at
+  `ec174d9`; `main` and the tag are pushed and in sync. This is the same
+  process as v2.1.0, v2.2.0 and v2.3.0.
+- There is no GitHub Release step and none is pending: `GET /releases`
+  returns 0 for this repo, only `ci.yml` exists, and no doc, worker,
+  skill or workflow mentions publishing. Do not look for `gh` or a token
+  on account of a release feeling unfinished.
 - Nothing else is pending. Any new gate (see Known problems) waits for
   its own approval.
 

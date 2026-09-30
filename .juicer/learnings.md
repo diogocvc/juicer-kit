@@ -165,3 +165,30 @@ Treat every sentence in a security document as an assertion that should
 be greppable. Search the repo for the message the sentence implies; if
 no string matches, either write the code or delete the claim. Never let
 a document be the only place a guarantee exists.
+
+### 2026-09-30 — A list of forbidden actions is not a to-do list
+
+**Observation:**
+The v2.4.0 task opened with "no tag, no push, no release publish". When
+those were later approved, the third item was treated as a step to
+execute, and the absence of `gh` and of a token was reported as a
+blocker. The repo has never published a GitHub Release: the public API
+returns 0, only `ci.yml` exists, and no doc, worker, skill or workflow
+mentions publishing. v2.1.0, v2.2.0 and v2.3.0 are tags only.
+
+**Root cause:**
+A prohibition was read as a description of the process. The wording
+listed three nouns, so the third was inferred to be outstanding work
+rather than a step that never existed.
+
+**Resolution:**
+Closed at tag + push, matching every previous version, and recorded in
+the handoff that the step does not exist so it is not rediscovered.
+
+**Reusable rule:**
+Before scheduling a step, prove it exists: find the script, workflow,
+skill or document that performs it. Permission to do X is not evidence
+that X belongs to the workflow. The same failure mode applies to carried
+forward state — a "known problem" is itself an assertion, so re-run it
+against the code before repeating it. The sibling bullet removed from
+the handoff today had been false since the templates were introduced.
