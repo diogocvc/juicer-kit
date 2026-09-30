@@ -95,3 +95,73 @@ impersonation of the decision-maker. To prevent substitution of the
 time and re-derive it at use time — and let the user repair the flow
 (`done` became a valid source state for `approve`) rather than stranding
 the workspace.
+
+### 2026-09-30 — A filename is content
+
+**Observation:**
+A file named `evil-->inject.md` in `agents/` was rendered into every
+harness mirror. Its provenance comment became
+`<!-- juicer-kit: generated from agents/evil-->inject.md sha256:… -->`,
+which closes the HTML comment early and leaves the rest of the name as
+body text in a file the harness reads as a prompt. The same name also
+travels into the Codex TOML `name = "…"` field.
+
+**Root cause:**
+The name was validated where the *user* supplied it (`juicer worker
+<name>`) but not where the *directory* supplied it (`iter_workers`). One
+rule, two entry points, one of them unguarded.
+
+**Resolution:**
+`WORKER_NAME = ^[a-z][a-z0-9-]*$` now lives in `adapters/_base.py`
+beside the renderer, and `iter_workers` skips non-matching names with a
+warning naming the file and the pattern.
+
+**Reusable rule:**
+Any string that crosses from the filesystem into a structured document —
+comment, string literal, frontmatter, path — is untrusted input.
+Validate it at the boundary where it is *embedded*, not only where it
+was typed. Attack the file *name*, not just the file *content*.
+
+### 2026-09-30 — Say what will not happen
+
+**Observation:**
+A safety failure printed `… (no files touched)`. One of its two call
+sites runs *after* `adapter.sync()` has already written the files, so
+the message was true for deletions and false for writes.
+
+**Root cause:**
+The message was written once for a helper and inherited by every caller,
+including one that could not honour it.
+
+**Resolution:**
+Each call site now states only what that site controls: the manifest
+failure says nothing will be read, deleted or recorded; the change-path
+failure says nothing will be recorded in the manifest or deleted.
+
+**Reusable rule:**
+A safety message emitted from shared code must be phrased in terms of
+the operations that helper owns, or take its context from the caller. A
+guarantee stated once and inherited by a caller that cannot honour it is
+a false guarantee — the exact category this audit treats as a BLOCKER.
+
+### 2026-09-30 — A security document is a test oracle
+
+**Observation:**
+`docs/security.md` claimed "`juicer sync` warns when a worker's access
+widens". No such warning existed anywhere in the code.
+
+**Root cause:**
+The document was drafted for the intended behaviour during the audit and
+never re-read against the implementation before commit.
+
+**Resolution:**
+Implemented the warning (it reports *any* permission change; direction
+is not inferred) and reworded the document to claim only what the code
+does. The wording, the code and the test that asserts the stderr string
+now move together.
+
+**Reusable rule:**
+Treat every sentence in a security document as an assertion that should
+be greppable. Search the repo for the message the sentence implies; if
+no string matches, either write the code or delete the claim. Never let
+a document be the only place a guarantee exists.
