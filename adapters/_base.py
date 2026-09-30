@@ -154,6 +154,11 @@ def confine_path(root, path, what="path"):
     resolution, and (via :func:`confine_manifest_entry`) absolute or
     ``..``-bearing manifest entries. Raises ``ValueError`` so the CLI can
     turn it into a clean failure.
+
+    This is the *root* boundary. It is the right check for the CLI's own
+    writes (which legitimately target ``.juicer/``). Adapter output must
+    go through :func:`confine_generated` instead, which additionally
+    protects workflow and VCS ownership.
     """
     root_resolved = Path(root).resolve()
     resolved = Path(path).resolve()
@@ -168,24 +173,61 @@ def confine_path(root, path, what="path"):
     return resolved
 
 
+# Directories and files the workflow core owns. No adapter may write or
+# record them, so neither generated output nor a tampered manifest can
+# reach state, gates or version-control configuration.
+PROTECTED_TOP_LEVEL = (".juicer", ".git")
+PROTECTED_FILES = (".gitignore",)
+
+
+def confine_generated(root, path, what="generated path"):
+    """Root containment plus ownership: adapters never touch core/VCS files.
+
+    This implements the rule documented in ``docs/adapter-contract.md``:
+    adapters never write outside the project root *and never into*
+    ``.juicer/``. ``.git/`` and ``.gitignore`` are excluded for the same
+    reason — generated mirrors must not alter how the repository tracks
+    files.
+    """
+    root_resolved = Path(root).resolve()
+    resolved = confine_path(root_resolved, path, what=what)
+    parts = resolved.relative_to(root_resolved).parts
+    if parts[0] in PROTECTED_TOP_LEVEL:
+        raise ValueError(
+            f"{what} {path} targets {parts[0]}/, which is owned by the "
+            "workflow core and is never adapter-generated"
+        )
+    if len(parts) == 1 and parts[0] in PROTECTED_FILES:
+        raise ValueError(
+            f"{what} {path} targets {parts[0]}, which is project-owned "
+            "and is never adapter-generated"
+        )
+    return resolved
+
+
 def confine_manifest_entry(root, rel, adapter_id=""):
-    """Strict form for manifest entries: relative, no ``..``, inside root."""
+    """Strict form for manifest entries: relative, no ``..``, inside root.
+
+    Additionally rejects core/VCS paths, so a planted manifest cannot be
+    used to delete ``.juicer/`` state or version-control configuration.
+    """
     where = f"adapter {adapter_id!r} manifest entry" if adapter_id else "manifest entry"
     entry = Path(rel)
     if entry.is_absolute():
         raise ValueError(f"{where} {rel!r} is an absolute path")
     if ".." in entry.parts:
         raise ValueError(f"{where} {rel!r} contains '..'")
-    return confine_path(root, root / entry, what=where)
+    return confine_generated(root, root / entry, what=where)
 
 
 def write_generated(path, content, *, root, dry_run=False, manifest=True):
     """Write a generated file unless the existing content is identical.
 
     ``root`` is mandatory and the target must resolve inside it: no
-    adapter, trusted or not, can write outside the project root.
+    adapter, trusted or not, can write outside the project root, and no
+    adapter can write into ``.juicer/``, ``.git/`` or ``.gitignore``.
     """
-    confine_path(root, path, what="generated path")
+    confine_generated(root, path, what="generated path")
     data = content.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
     if path.exists() and path.read_bytes() == data:
@@ -221,7 +263,7 @@ def ensure_entrypoint(ctx, dry_run=False):
     The entrypoint is project-owned: it is never tracked in the sync
     manifest and therefore never deleted as a stale generated file.
     """
-    target = confine_path(ctx.root, ctx.root / "AGENTS.md", what="entrypoint")
+    target = confine_generated(ctx.root, ctx.root / "AGENTS.md", what="entrypoint")
     if target.exists():
         return Change(path=target, action="skip", reason="exists",
                       digest=sha256_file(target), manifest=False)
@@ -239,7 +281,7 @@ def mirror_skills(ctx, destination, dry_run=False):
         if not src.is_file():
             continue
         rel = src.relative_to(source)
-        dst = confine_path(ctx.root, destination / rel, what="skills mirror path")
+        dst = confine_generated(ctx.root, destination / rel, what="skills mirror path")
         data = src.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         if dst.exists() and dst.read_bytes() == data:

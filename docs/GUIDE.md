@@ -125,12 +125,15 @@ A chat session is temporary. Mission state is persistent. A fresh session should
 
 ## 7. Human control and approval gates
 
-Juicer uses four explicit gates:
+Juicer defines four gates. Two are enforced by the CLI, two are
+conventions that only humans and agents can uphold:
 
-1. **Planning** — implementation starts only after plan approval.
-2. **Scope** — every unit has explicit scope and acceptance criteria.
-3. **Verification** — completion requires evidence.
-4. **Ship** — production-impacting actions require explicit human approval.
+| # | Gate | Kind | What actually stops you |
+|---|---|---|---|
+| 1 | Planning | mechanical | `juicer start` refuses without a valid plan approval record |
+| 2 | Scope | convention | nothing — the CLI records only the unit id |
+| 3 | Verification | convention | nothing — the CLI never checks that tests ran |
+| 4 | Ship | mechanical | `juicer ship-approve` writes a record bound to plan, mission, unit and (in a git repository) the code state; `juicer status` reports it |
 
 Commands:
 
@@ -139,12 +142,21 @@ Commands:
 ./bin/juicer ship-approve
 ```
 
+Both require an identity: the OS user when run on a TTY, otherwise an
+explicit `--by=<id>` (for example `--by=ci`). Without either they exit 1.
+The record stores `by`, `at`, `via`, `revision` and the approved target
+digest. It proves *that a record was written by a process that named
+itself* — it does **not** prove that a particular human was at the
+keyboard. See [`security.md`](security.md).
+
 Agents must never infer approval.
 
 Approval lives in state: `./bin/juicer status` shows `approved` and
-`ship_approved`. The CLI executes no production action itself, so
-release skills and workflows must verify `ship_approved` is `true`
-before any production-impacting step and stop while it is `false`.
+`ship_approved` together with their records. The CLI executes no
+production action itself, so release skills and workflows must verify
+`ship_approved` is `true` before any production-impacting step and stop
+while it is `false`. That last instruction governs agent behaviour; it is
+not a mechanism that can halt a process on its own.
 
 ## 8. Workers
 
@@ -268,11 +280,11 @@ The CLI does not call an LLM. It manages deterministic state while the active ha
 ```text
 finder → analyst → architect → planner
                  ↓
-          HUMAN APPROVAL
+          PLAN APPROVAL (recorded)
                  ↓
         coder/editor → reviewer → tester → documenter
                  ↓
-        HUMAN SHIP APPROVAL
+        SHIP APPROVAL (recorded)
                  ↓
              devops
 ```
@@ -294,7 +306,7 @@ finder → analyst → refactorer → reviewer → tester
 ### Release
 
 ```text
-reviewer → tester → security (when applicable) → HUMAN APPROVAL → devops
+reviewer → tester → security (when applicable) → SHIP APPROVAL → devops
 ```
 
 Workflows are control structures, not mandatory autonomous swarms.
@@ -367,7 +379,10 @@ Remediation
 
 Never commit API keys, private keys, passwords, tokens or production credentials.
 
-Destructive and production-impacting actions remain behind explicit human approval.
+Destructive and production-impacting actions remain behind an explicit approval
+record (`juicer approve`, `juicer ship-approve`). The record names an identity; it
+does not authenticate a person, and the harness/OS is what can actually refuse the
+command. See [`security.md`](security.md).
 
 Project adapters are executable Python and are untrusted by default
 (see section 19); load them only in repositories you trust.

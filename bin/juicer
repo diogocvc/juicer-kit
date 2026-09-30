@@ -24,7 +24,7 @@ PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/run
                    ".juicer/state.lock", ".juicer/state.json.tmp")
 
 sys.path.insert(0, str(KIT / "adapters"))
-from _base import Ctx, confine_manifest_entry, confine_path, sha256_file  # noqa: E402
+from _base import Ctx, confine_generated, confine_manifest_entry, confine_path, sha256_file  # noqa: E402
 
 def fail(message):
     print(f"error: {message}", file=sys.stderr)
@@ -32,6 +32,24 @@ def fail(message):
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+# --- Write confinement (B-01) ----------------------------------------------
+# confine_path() is the single choke point for every file Juicer writes.
+# Adapters get it through write_generated(); the CLI itself must apply it
+# to its OWN writes (state, mission, lock, manifest, .gitignore, init
+# copies), otherwise a symlink planted inside the repository redirects a
+# legitimate write outside the project root.
+
+def confine_write(path, what="path"):
+    """Require ``path`` to resolve strictly inside ROOT before any write.
+
+    Exits with a clean error (never a traceback) when a symlink or ``..``
+    sends the target outside the workspace.
+    """
+    try:
+        return confine_path(ROOT, path, what=what)
+    except ValueError as error:
+        fail(str(error))
 
 # --- State persistence (BUG-01) -------------------------------------------
 # Every write goes through an exclusive advisory lock and an atomic
@@ -52,6 +70,7 @@ def state_lock():
             _lock_depth -= 1
         return
     path = ROOT / ".juicer" / "state.lock"
+    confine_write(path, what="state lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
     try:
@@ -86,6 +105,7 @@ def _state_revision(state):
 
 def _atomic_write_text(path, text):
     """Replace ``path`` atomically (tmp + fsync + rename) next to itself."""
+    confine_write(path, what="write target")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.parent / (path.name + ".tmp")
     try:
@@ -142,11 +162,13 @@ def update_state(mutator):
 
 def ensure_mission():
     mission = ROOT / ".juicer" / "mission.md"
+    confine_write(mission, what="mission file")
     if not mission.exists():
         mission.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(KIT / ".juicer" / "mission.md", mission)
 
 def ensure_runtime():
+    confine_write(ROOT / ".juicer" / "state.json", what="state file")
     (ROOT / ".juicer").mkdir(exist_ok=True)
     if not STATE.exists():
         update_state(lambda state: None)
@@ -311,6 +333,7 @@ def copy_missing(src, dst):
         for child in sorted(src.iterdir()):
             copy_missing(child, dst / child.name)
     elif src.is_file() and not dst.exists():
+        confine_write(dst, what="init destination")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
 
@@ -353,6 +376,7 @@ def available_commands(status):
 
 def ensure_project_gitignore():
     path = ROOT / ".gitignore"
+    confine_write(path, what="gitignore")
     existing = path.read_text().splitlines() if path.exists() else []
     missing = [line for line in PROJECT_MIRRORS if line not in existing]
     if not missing:
@@ -498,6 +522,7 @@ def save_manifest(adapter_id, files):
     if files == load_manifest(adapter_id):
         return
     path = manifest_path(adapter_id)
+    confine_write(path, what="manifest file")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema": 1, "adapter": adapter_id, "updated_at": now(),
                "files": dict(sorted(files.items()))}
@@ -506,15 +531,21 @@ def save_manifest(adapter_id, files):
 def _prune_empty_dirs(path):
     parent = path.parent
     while parent != ROOT:
-        try:
-            parent.relative_to(ROOT)
-        except ValueError:
+        if not _inside_root(parent):
             break
         try:
             parent.rmdir()
         except OSError:
             break
         parent = parent.parent
+
+def _inside_root(path):
+    """True when ``path`` resolves strictly inside ROOT (root itself excluded)."""
+    try:
+        confine_path(ROOT, path, what="directory prune target")
+    except ValueError:
+        return False
+    return True
 
 def _validate_manifest(adapter_id, manifest):
     """Two-pass safety (BUG-07): reject every unsafe entry BEFORE any FS op."""
@@ -533,7 +564,7 @@ def _validate_change_paths(adapter_id, changes):
     unsafe = []
     for change in changes:
         try:
-            confine_path(ROOT, change.path, what="generated change path")
+            confine_generated(ROOT, change.path, what="generated change path")
         except ValueError as error:
             unsafe.append(str(error))
     if unsafe:
