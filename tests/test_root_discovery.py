@@ -68,12 +68,47 @@ def test_init_initializes_current_directory_only(tmp_path):
     assert not (tmp_path / ".juicer").exists()
 
 
+def test_nested_init_refused_without_flag(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    assert run(tmp_path, "mission", "Outer").returncode == 0
+    inner = tmp_path / "inner"
+    inner.mkdir()
+
+    r = run(inner, "init")
+    assert r.returncode == 1, r.stderr
+    assert "--nested" in r.stderr
+    assert not (inner / ".juicer").exists()
+
+    # the outer workspace keeps its state and its mission
+    assert (tmp_path / ".juicer" / "state.json").exists()
+    outer = json.loads(run(tmp_path, "status").stdout.split("\navailable:")[0])
+    assert outer["status"] == "planning"
+
+
+def test_nested_init_allowed_with_flag_keeps_roots_separate(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    assert run(tmp_path, "mission", "Outer").returncode == 0
+    inner = tmp_path / "inner"
+    inner.mkdir()
+
+    r = run(inner, "init", "--nested")
+    assert r.returncode == 0, r.stderr
+    assert "nested workspace" in r.stderr
+    assert (inner / ".juicer" / "state.json").exists()
+
+    inner_state = json.loads(run(inner, "status").stdout.split("\navailable:")[0])
+    assert inner_state["status"] == "idle"
+    outer_state = json.loads(run(tmp_path, "status").stdout.split("\navailable:")[0])
+    assert outer_state["status"] == "planning"
+    assert outer_state["current_unit"] is None
+
+
 def test_nearest_workspace_wins(tmp_path):
     assert run(tmp_path, "init").returncode == 0
     assert run(tmp_path, "mission", "Outer").returncode == 0
     inner = tmp_path / "inner"
     inner.mkdir()
-    assert run(inner, "init").returncode == 0
+    assert run(inner, "init", "--nested").returncode == 0
 
     r = run(inner, "status")
     assert r.returncode == 0, r.stderr

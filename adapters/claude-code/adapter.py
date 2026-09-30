@@ -44,6 +44,7 @@ class Adapter(BaseAdapter):
     executable = "claude"
     marker_dir = ".claude"
     agents_dir = ".claude/agents"
+    skills_dir = ".claude/skills"
     supports_skills_mirror = True
 
     def capabilities(self):
@@ -69,7 +70,7 @@ class Adapter(BaseAdapter):
 
     def sync(self, ctx, dry_run=False):
         changes = [ensure_entrypoint(ctx, dry_run=dry_run)]
-        changes += mirror_skills(ctx, ctx.root / ".claude" / "skills", dry_run=dry_run)
+        changes += mirror_skills(ctx, ctx.root / self.skills_dir, dry_run=dry_run)
         for worker in iter_workers(ctx):
             content = render_agent(self._frontmatter(worker), worker)
             path = ctx.root / self.agents_dir / f"{worker.name}.md"

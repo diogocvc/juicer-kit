@@ -13,10 +13,12 @@ an adapter module.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -220,14 +222,63 @@ def confine_manifest_entry(root, rel, adapter_id=""):
     return confine_generated(root, root / entry, what=where)
 
 
+def require_owned(adapter_id, rel, owned, what="path"):
+    """Reject a path the adapter does not own (H-04).
+
+    Confinement proves the target is inside the root; ownership proves
+    the file belongs to this adapter's output. Without it, a trusted or
+    tampered adapter could overwrite (and a planted manifest could
+    delete) user source, the project entrypoint or harness settings the
+    adapter never generates.
+    """
+    entry = rel.replace("\\", "/")
+    for prefix in owned:
+        if prefix.endswith("/"):
+            if entry.startswith(prefix):
+                return
+        elif entry == prefix:
+            return
+    listing = ", ".join(owned) or "nothing"
+    raise ValueError(
+        f"adapter {adapter_id!r} {what} {rel!r} is not owned by this adapter "
+        f"(owned: {listing})"
+    )
+
+
+# Ownership of the adapter currently running its sync/install. Scoped, so
+# concurrent use of the module in-process stays deterministic.
+_ACTIVE_OWNERSHIP = None
+
+
+@contextlib.contextmanager
+def ownership_scope(adapter):
+    """Bind write_generated() to ``adapter``'s declared output for its duration."""
+    global _ACTIVE_OWNERSHIP
+    previous = _ACTIVE_OWNERSHIP
+    _ACTIVE_OWNERSHIP = (adapter.id, tuple(adapter.owned_paths()))
+    try:
+        yield
+    finally:
+        _ACTIVE_OWNERSHIP = previous
+
+
 def write_generated(path, content, *, root, dry_run=False, manifest=True):
     """Write a generated file unless the existing content is identical.
 
     ``root`` is mandatory and the target must resolve inside it: no
     adapter, trusted or not, can write outside the project root, and no
     adapter can write into ``.juicer/``, ``.git/`` or ``.gitignore``.
+    While an adapter sync is running, manifest-tracked writes must also
+    land inside the paths that adapter declared as its own.
     """
     confine_generated(root, path, what="generated path")
+    if manifest and _ACTIVE_OWNERSHIP is not None:
+        adapter_id, owned = _ACTIVE_OWNERSHIP
+        try:
+            rel = Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+        except ValueError:
+            rel = str(path)
+        require_owned(adapter_id, rel, owned, what="generated path")
     data = content.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
     if path.exists() and path.read_bytes() == data:
@@ -247,12 +298,35 @@ def resolve_source(ctx, relative):
     return ctx.kit / relative
 
 
+def _inside(path, base):
+    try:
+        Path(path).resolve().relative_to(Path(base).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def trusted_source(ctx, path):
+    """True when ``path`` resolves inside the project or the kit.
+
+    Canonical sources are read through symlinks. A repository can carry a
+    symlink pointing at ``~/.ssh/id_rsa``; following it would copy
+    outside content into generated harness files. Sources that resolve
+    outside both roots are skipped with a warning instead.
+    """
+    return _inside(path, ctx.root) or _inside(path, ctx.kit)
+
+
 def iter_workers(ctx):
     """Yield every canonical worker contract, project copy first."""
     agents_dir = resolve_source(ctx, ctx.agents_source)
     if not agents_dir.is_dir():
         return
     for path in sorted(agents_dir.glob("*.md")):
+        if not trusted_source(ctx, path):
+            print(f"warning: skipping worker outside the project/kit roots: {path}",
+                  file=sys.stderr)
+            continue
         frontmatter, body = read_frontmatter(path)
         yield Worker(name=path.stem, path=path, frontmatter=frontmatter, body=body)
 
@@ -279,6 +353,10 @@ def mirror_skills(ctx, destination, dry_run=False):
         return changes
     for src in sorted(source.rglob("*")):
         if not src.is_file():
+            continue
+        if not trusted_source(ctx, src):
+            print(f"warning: skipping skills source outside the project/kit roots: {src}",
+                  file=sys.stderr)
             continue
         rel = src.relative_to(source)
         dst = confine_generated(ctx.root, destination / rel, what="skills mirror path")
@@ -326,7 +404,24 @@ class Adapter:
     executable = None          # binary probed by discover()
     marker_dir = None          # harness dir where install() drops its marker
     agents_dir = None          # harness agents target, e.g. ".opencode/agents"
+    skills_dir = None          # harness skills mirror target, if any
     supports_skills_mirror = False
+
+    def owned_paths(self):
+        """Relative files and directory prefixes this adapter may generate.
+
+        A manifest entry outside this set is rejected before any file is
+        read or deleted, so an adapter — or a tampered manifest claiming
+        to be its output — can never remove a file it does not own.
+        ``AGENTS.md`` is deliberately absent: it is project-owned.
+        """
+        owned = []
+        for directory in (self.agents_dir, self.skills_dir):
+            if directory:
+                owned.append(str(directory).rstrip("/") + "/")
+        if self.marker_dir:
+            owned.append(str(self.marker_dir).rstrip("/") + "/juicer-kit.md")
+        return owned
 
     def capabilities(self):
         raise NotImplementedError

@@ -54,7 +54,7 @@ Transition table (source states accepted per command):
 | Command | From | To |
 |---|---|---|
 | `mission` | idle, planning, ready, blocked, done | planning |
-| `approve` | planning, blocked, ready | ready |
+| `approve` | planning, blocked, ready, done | ready from planning/blocked; otherwise unchanged |
 | `start` | ready, blocked (requires `approved`) | executing |
 | `checkpoint executing` | executing, blocked | executing |
 | `checkpoint blocked` | executing, blocked | blocked |
@@ -66,7 +66,14 @@ Transition table (source states accepted per command):
 Rules:
 
 - `start` checks the approval gate first, so an unapproved attempt always
-  fails with `Blocked: approve the plan before starting work.`
+  fails with `Blocked: the plan has not been approved; run juicer approve
+  first.` The message then names the specific failure: a missing/invalid
+  record, or a plan/mission that changed after approval.
+- An approval covers the **content** of `.juicer/plan.md`,
+  `.juicer/mission.md` and `mission_id` at the moment it was recorded.
+  Editing either file afterwards invalidates it until `approve` runs
+  again; `done` is an accepted source state precisely so a plan edited
+  after `finish` can be re-approved before shipping.
 - Only one unit is active at a time: `start` is rejected while `executing`.
 - `mission` is rejected while `executing`; a new mission resets
   `approved`, `ship_approved` and `current_unit`.

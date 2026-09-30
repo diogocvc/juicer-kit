@@ -213,7 +213,7 @@ def test_approve_with_by_records_automation_provenance(tmp_path):
     assert record["via"] == "automation"
     assert isinstance(record["revision"], int) and record["revision"] >= 1
     assert record["at"]
-    assert record["target"]["mission_id"] == state(tmp_path)["mission_id"]
+    assert record["target"]["parts"]["mission_id"] == state(tmp_path)["mission_id"]
 
 
 def test_interactive_approve_records_os_user(tmp_path):
@@ -346,5 +346,5 @@ def test_ship_requires_valid_plan_approval(tmp_path):
     path.write_text(json.dumps(data, indent=2) + "\n")
     r = run(tmp_path, "ship-approve", "--by=test")
     assert r.returncode == 1
-    assert "approval is missing or invalid" in r.stderr
+    assert "approval record is missing or invalid" in r.stderr
     assert state(tmp_path)["ship_approved"] is False

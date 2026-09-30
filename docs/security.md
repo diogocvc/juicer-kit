@@ -115,6 +115,18 @@ not as authorization.
   which resolves the destination and rejects anything outside the root.
 - Adapter output additionally goes through `confine_generated()`, which
   rejects `.juicer/`, `.git/` and `.gitignore`.
+- Adapter output must also sit inside the paths that adapter declares
+  as its own (`agents_dir`, `skills_dir`, its marker file). The rule is
+  enforced at **write** time by `write_generated()` and again at **load**
+  time for manifest entries, before any read or delete. An adapter can
+  therefore only generate inside its own directories, and a planted
+  manifest entry cannot remove user source, `AGENTS.md` or another
+  harness's settings. (`AGENTS.md` itself is `manifest=False`:
+  project-owned, never recorded, never deleted by sync.)
+- Worker contracts and mirrored skills are read through symlinks. A
+  source that resolves outside the project and the kit is refused (worker
+  lookup) or skipped with a warning (skills mirror), so a committed
+  symlink cannot exfiltrate arbitrary files into generated output.
 - Known limit: confinement resolves symlinks and then writes. A process
   that swaps a path component for a symlink in that window can still win
   (TOCTOU). Defeating that requires `O_NOFOLLOW`/directory-fd discipline

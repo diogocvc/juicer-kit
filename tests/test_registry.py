@@ -18,6 +18,7 @@ FAKE_ADAPTER = textwrap.dedent(
         id = "fake"
         executable = "juicer-no-such-binary"
         marker_dir = ".fake"
+        agents_dir = ".fake"   # declares ownership of its whole output directory
 
         def capabilities(self):
             return {
@@ -45,6 +46,9 @@ OVERRIDE_ZED = textwrap.dedent(
     class Adapter(BaseAdapter):
         id = "zed"
         marker_dir = None
+
+        def owned_paths(self):
+            return [".zed-override.txt"]
 
         def capabilities(self):
             return {

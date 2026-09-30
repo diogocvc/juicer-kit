@@ -24,7 +24,8 @@ PROJECT_MIRRORS = (".opencode/", ".claude/", ".cursor/", ".codex/", ".juicer/run
                    ".juicer/state.lock", ".juicer/state.json.tmp")
 
 sys.path.insert(0, str(KIT / "adapters"))
-from _base import Ctx, confine_generated, confine_manifest_entry, confine_path, sha256_file  # noqa: E402
+from _base import (Ctx, confine_generated, confine_manifest_entry,  # noqa: E402
+                   confine_path, ownership_scope, require_owned, sha256_file)
 
 def fail(message):
     print(f"error: {message}", file=sys.stderr)
@@ -50,6 +51,21 @@ def confine_write(path, what="path"):
         return confine_path(ROOT, path, what=what)
     except ValueError as error:
         fail(str(error))
+
+def _trusted_text(path, what):
+    """Read a workspace file only if it resolves inside ROOT or the KIT.
+
+    A planted symlink must not turn a plain read (status output, worker
+    contract) into an arbitrary-file disclosure.
+    """
+    resolved = Path(path).resolve()
+    for base in (ROOT, KIT):
+        try:
+            resolved.relative_to(Path(base).resolve())
+            return Path(path).read_text()
+        except ValueError:
+            continue
+    fail(f"{what} {path} resolves outside the project and the kit ({resolved})")
 
 # --- State persistence (BUG-01) -------------------------------------------
 # Every write goes through an exclusive advisory lock and an atomic
@@ -225,7 +241,15 @@ def _record_bound(record, state):
             and record["revision"] <= _state_revision(state))
 
 def _approval_valid(state):
-    return state.get("approved") is True and _record_bound(state.get("approval"), state)
+    """Approval flag + record validity + the approved target still matches.
+
+    The record stores the plan and mission digests at approval time; if
+    either file changed afterwards the approval no longer covers what is
+    being executed or shipped.
+    """
+    return (state.get("approved") is True
+            and _record_bound(state.get("approval"), state)
+            and _approval_target_matches(state))
 
 def _ship_approval_valid(state):
     record = state.get("ship_approval")
@@ -296,8 +320,24 @@ def ship_target_digest(state):
     return {"parts": parts, "digest": hashlib.sha256(payload.encode("utf-8")).hexdigest()}
 
 def _approval_target(state):
-    return {"plan": _safe_sha(ROOT / ".juicer" / "plan.md"),
-            "mission_id": state.get("mission_id")}
+    """The object that was approved: plan content + mission content + id."""
+    parts = {"plan": _safe_sha(ROOT / ".juicer" / "plan.md"),
+             "mission": _safe_sha(ROOT / ".juicer" / "mission.md"),
+             "mission_id": state.get("mission_id")}
+    payload = json.dumps(parts, sort_keys=True)
+    return {"parts": parts,
+            "digest": hashlib.sha256(payload.encode("utf-8")).hexdigest()}
+
+def _approval_target_matches(state):
+    record = state.get("approval")
+    if not _record_valid(record, require_target=True):
+        return False
+    recorded = record["target"].get("parts")
+    current = _approval_target(state)["parts"]
+    return (isinstance(recorded, dict)
+            and recorded.get("plan") == current["plan"]
+            and recorded.get("mission") == current["mission"]
+            and recorded.get("mission_id") == current["mission_id"])
 
 def _refresh_ship_approval(state):
     """Eager invalidation inside update_state: ship binds to the exact target."""
@@ -311,10 +351,16 @@ def _refresh_ship_approval(state):
 def _effective_state(state):
     """Computed status view: flags are only reported when fully backed."""
     notes = []
-    if state.get("approved") and not _record_bound(state.get("approval"), state):
-        state["approved"] = False
-        notes.append("approved flag ignored: approval record missing or invalid "
-                     "(re-run juicer approve)")
+    if state.get("approved"):
+        record = state.get("approval")
+        if not _record_bound(record, state):
+            state["approved"] = False
+            notes.append("approved flag ignored: approval record missing or invalid "
+                         "(re-run juicer approve)")
+        elif not _approval_target_matches(state):
+            state["approved"] = False
+            notes.append("approved invalidated: plan or mission changed after "
+                         "approval (re-run juicer approve)")
     if state.get("ship_approved"):
         record = state.get("ship_approval")
         if not (_record_bound(record, state)
@@ -342,7 +388,10 @@ def copy_missing(src, dst):
 # See docs/architecture.md §3 for the diagram.
 
 MISSION_FROM = ("idle", "planning", "ready", "blocked", "done")
-APPROVE_FROM = ("planning", "blocked", "ready")
+# `done` is included so a plan edited after `finish` can be re-approved
+# before ship-approve; `executing` is not, because checkpointing to
+# `ready` is always available from there.
+APPROVE_FROM = ("planning", "blocked", "ready", "done")
 START_FROM = ("ready", "blocked")
 CHECKPOINT_RULES = {
     "executing": ("executing", "blocked"),
@@ -547,50 +596,64 @@ def _inside_root(path):
         return False
     return True
 
-def _validate_manifest(adapter_id, manifest):
+def _require_owned(adapter, rel, what="manifest entry"):
+    """Reject entries the adapter does not own (H-04).
+
+    Confinement proves the path is inside the root; ownership proves the
+    file belongs to this adapter's output. Without it a planted manifest
+    entry could delete user source, ``AGENTS.md`` or harness settings the
+    adapter never generates. The same rule runs at write time inside
+    ``write_generated()``, so nothing is created before it is rejected.
+    """
+    require_owned(adapter.id, rel, tuple(adapter.owned_paths()), what=what)
+
+def _validate_manifest(adapter, manifest):
     """Two-pass safety (BUG-07): reject every unsafe entry BEFORE any FS op."""
     unsafe = []
     for rel in manifest:
         try:
-            confine_manifest_entry(ROOT, rel, adapter_id)
+            confine_manifest_entry(ROOT, rel, adapter.id)
+            _require_owned(adapter, rel)
         except ValueError as error:
             unsafe.append(str(error))
     if unsafe:
-        fail(f"adapter {adapter_id!r} manifest contains {len(unsafe)} unsafe "
+        fail(f"adapter {adapter.id!r} manifest contains {len(unsafe)} unsafe "
              "entr" + ("y" if len(unsafe) == 1 else "ies") + " (no files touched): "
              + "; ".join(unsafe))
 
-def _validate_change_paths(adapter_id, changes):
+def _validate_change_paths(adapter, changes):
     unsafe = []
     for change in changes:
         try:
             confine_generated(ROOT, change.path, what="generated change path")
+            if change.manifest and change.digest:
+                _require_owned(adapter, _rel(change.path), what="generated path")
         except ValueError as error:
             unsafe.append(str(error))
     if unsafe:
-        fail(f"adapter {adapter_id!r} produced unsafe paths (no files touched): "
+        fail(f"adapter {adapter.id!r} produced unsafe paths (no files touched): "
              + "; ".join(unsafe))
 
-def apply_manifest(adapter_id, changes, dry_run=False, check=False, force=False):
+def apply_manifest(adapter, changes, dry_run=False, check=False, force=False):
     """Reconcile generated files against the adapter's manifest.
 
-    Safety rules: only files recorded in the manifest may be deleted;
-    a recorded file the user modified is kept (unless ``force``) and
+    Safety rules: only files recorded in the manifest may be deleted; a
+    recorded file the user modified is kept (unless ``force``) and
     reported as a conflict. Project-owned files (``manifest=False``,
     e.g. AGENTS.md) and unmanaged files are never touched. All manifest
-    entries and change paths are validated to stay inside ROOT before
-    anything is read, deleted or written.
+    entries and change paths are validated for confinement *and*
+    adapter ownership before anything is read, deleted or written.
     """
     changes = [c for c in changes if c is not None]
-    _validate_change_paths(adapter_id, changes)
+    _validate_change_paths(adapter, changes)
     current, writes = {}, []
     for change in changes:
         if change.action == "write":
             writes.append(change)
         if change.manifest and change.digest:
             current[_rel(change.path)] = change.digest
-    manifest = load_manifest(adapter_id)
-    _validate_manifest(adapter_id, manifest)
+    manifest = load_manifest(adapter.id)
+    _validate_manifest(adapter, manifest)
     deletes, conflicts = [], []
     for rel, digest in manifest.items():
         if rel in current:
@@ -609,20 +672,21 @@ def apply_manifest(adapter_id, changes, dry_run=False, check=False, force=False)
         new_manifest = dict(current)
         for rel in conflicts:
             new_manifest[rel] = manifest[rel]
-        save_manifest(adapter_id, new_manifest)
+        save_manifest(adapter.id, new_manifest)
     return {"writes": writes, "deletes": deletes, "conflicts": conflicts,
             "current": set(current)}
 
 def _sync_one(adapter, ctx, dry_run, check, force, verb="synced", install=False):
     manifest = load_manifest(adapter.id)
-    _validate_manifest(adapter.id, manifest)
+    _validate_manifest(adapter, manifest)
     pre = {}
     if not (dry_run or check):
         pre = {rel: sha256_file(ROOT / rel)
                for rel in manifest if (ROOT / rel).exists()}
     method = adapter.install if install else adapter.sync
-    changes = _call(method, ctx, dry_run=dry_run or check)
-    info = apply_manifest(adapter.id, changes, dry_run=dry_run, check=check, force=force)
+    with ownership_scope(adapter):
+        changes = _call(method, ctx, dry_run=dry_run or check)
+    info = apply_manifest(adapter, changes, dry_run=dry_run, check=check, force=force)
     if not (dry_run or check):
         info["regenerated"] = [rel for rel in pre
                                if rel in info["current"]
@@ -701,7 +765,18 @@ def render_mission(objective):
     return (before_objective + "## Objective\n\n" + objective.rstrip() + "\n\n"
             + marker + tail)
 
-def cmd_init(_):
+def cmd_init(args):
+    ancestor = find_project_root()
+    cwd = Path.cwd().resolve()
+    if ancestor is not None and ancestor != cwd:
+        # cwd sits inside an existing workspace. Creating a second one
+        # would split state and gates across two roots with no signal.
+        if not getattr(args, "nested", False):
+            fail(f"already inside an initialized Juicer project at {ancestor}\n"
+                 f"  working directory: {Path.cwd()}\n"
+                 "  a nested workspace would split state, gates and sync targets\n"
+                 "  across two roots. run `juicer init` from the project root, or\n"
+                 "  pass --nested to create a separate workspace here on purpose.")
     ensure_runtime()
     for name in ["AGENTS.md", ".juicer/mission.md", ".juicer/plan.md"]:
         copy_missing(KIT / name, ROOT / name)
@@ -713,6 +788,27 @@ def cmd_init(_):
     ensure_project_gitignore()
     sync("all")
     print("Juicer Kit v2.3.0 initialized.")
+    if ancestor is not None:
+        print(f"note: nested workspace created inside {ancestor}; "
+              "commands run here target this directory only.",
+              file=sys.stderr)
+
+def _approval_summary(state, valid, label, key):
+    record = state.get(key)
+    if not isinstance(record, dict) or not record:
+        print(f"{label}: none", file=sys.stderr)
+        return
+    verdict = "valid" if valid else "invalid"
+    line = (f"{label}: {verdict} by={record.get('by')} via={record.get('via')} "
+            f"at={record.get('at')} revision={record.get('revision')}")
+    binding = record.get("code_binding")
+    if binding is not None:
+        line += f" code_binding={binding}"
+    print(line, file=sys.stderr)
+    if binding in ("none", "failed"):
+        print(f"warning: {label} has code binding {binding} — it is NOT bound to "
+              "a specific commit and must not be read as an attestation of the "
+              "code being released.", file=sys.stderr)
 
 def cmd_status(_):
     ensure_runtime()
@@ -720,12 +816,14 @@ def cmd_status(_):
     print(json.dumps(s, indent=2))
     for note in notes:
         print(f"note: {note}", file=sys.stderr)
+    _approval_summary(s, _approval_valid(s), "plan approval", "approval")
+    _approval_summary(s, _ship_approval_valid(s), "ship approval", "ship_approval")
     commands = available_commands(s.get("status", "idle"))
     if commands:
         print("\navailable: " + ", ".join(commands))
     if MISSION.exists():
         print("\n--- mission ---")
-        print(MISSION.read_text()[:3000])
+        print(_trusted_text(MISSION, "mission file")[:3000])
 
 def cmd_mission(args):
     ensure_runtime()
@@ -750,26 +848,39 @@ def cmd_approve(args):
     by, via = approval_identity(args.by)
     def mut(s):
         require_state("approve", s.get("status"), APPROVE_FROM)
-        s.update({"status":"ready","approved":True})
+        if s.get("status") in ("planning", "blocked"):
+            s["status"] = "ready"
+        s["approved"] = True
         s["approval"] = _new_record(s, by=by, via=via, target=_approval_target(s))
     update_state(mut)
     print("Mission plan approved. Implementation may proceed.")
 
+def _approval_block_reason(state):
+    """Why the plan approval cannot be used right now, or None if it can.
+
+    Kept separate from ``_approval_valid`` so callers can report *which*
+    part of the approval failed instead of a single opaque verdict.
+    """
+    if not state.get("approved"):
+        return "the plan has not been approved"
+    record = state.get("approval")
+    if not _record_bound(record, state):
+        return "the approval record is missing or invalid (audit .juicer/state.json)"
+    if not _approval_target_matches(state):
+        return "the plan or mission changed after approval"
+    return None
+
 def cmd_start(args):
     ensure_runtime()
     state = read_state()
-    if not state.get("approved"):
-        fail("Blocked: approve the plan before starting work.")
-    if not _approval_valid(state):
-        fail("Blocked: approval record is missing or invalid; "
-             "audit .juicer/state.json and re-run juicer approve.")
+    reason = _approval_block_reason(state)
+    if reason:
+        fail(f"Blocked: {reason}; run juicer approve first.")
     require_state("start", state.get("status"), START_FROM)
     def mut(s):
-        if not s.get("approved"):
-            fail("Blocked: approve the plan before starting work.")
-        if not _approval_valid(s):
-            fail("Blocked: approval record is missing or invalid; "
-                 "audit .juicer/state.json and re-run juicer approve.")
+        blocked = _approval_block_reason(s)
+        if blocked:
+            fail(f"Blocked: {blocked}; run juicer approve first.")
         require_state("start", s.get("status"), START_FROM)
         s.update({"status":"executing","current_unit":args.unit})
     update_state(mut)
@@ -789,24 +900,61 @@ def cmd_checkpoint(args):
     update_state(mut)
     print(f"Checkpoint saved: {args.status}")
 
+def ship_code_binding(root):
+    """How tightly ship-approve is bound to the code it approves.
+
+    ``sha`` — inside a git work tree with a reachable HEAD; the target
+    digest then covers the commit and the porcelain status. ``failed`` —
+    git exists but the code state could not be captured (no HEAD yet,
+    ``git status`` failing). ``none`` — not a git work tree at all.
+
+    Approval is always recorded either way. The value only states how
+    much the target digest can vouch for: outside git, ``ship-approve``
+    is a recorded human decision, never a cryptographic attestation of
+    the code being released.
+    """
+    if shutil.which("git") is None:
+        return "failed"
+    def run(*argv):
+        try:
+            return subprocess.run(["git", "-C", str(root), *argv],
+                                  capture_output=True, text=True)
+        except OSError:
+            return None
+    inside = run("rev-parse", "--is-inside-work-tree")
+    if inside is None or inside.returncode != 0:
+        return "none"
+    if run("rev-parse", "--verify", "HEAD").returncode != 0:
+        return "failed"
+    status = run("status", "--porcelain")
+    if status is None or status.returncode != 0:
+        return "failed"
+    return "sha"
+
 def cmd_ship_approve(args):
     ensure_runtime()
     state = read_state()
     require_state("ship-approve", state.get("status"), SHIP_FROM)
-    if not (state.get("approved") and _approval_valid(state)):
-        fail("Cannot ship-approve: mission plan approval is missing or invalid; "
-             "run juicer approve first.")
+    blocked = _approval_block_reason(state)
+    if blocked:
+        fail(f"Cannot ship-approve: {blocked}; run juicer approve first.")
     by, via = approval_identity(args.by)
+    binding = ship_code_binding(ROOT)
     def mut(s):
         require_state("ship-approve", s.get("status"), SHIP_FROM)
-        if not (s.get("approved") and _approval_valid(s)):
-            fail("Cannot ship-approve: mission plan approval is missing or invalid; "
-                 "run juicer approve first.")
+        blocked = _approval_block_reason(s)
+        if blocked:
+            fail(f"Cannot ship-approve: {blocked}; run juicer approve first.")
         s["ship_approved"] = True
-        s["ship_approval"] = _new_record(s, by=by, via=via,
+        s["ship_approval"] = _new_record(s, by=by, via=via, code_binding=binding,
                                          target=ship_target_digest(s))
     update_state(mut)
     print("Production-impacting actions are approved.")
+    if binding != "sha":
+        print(f"warning: ship approval code binding: {binding} — outside a clean "
+              "git work tree the approval is NOT bound to a specific commit. It is "
+              "a record of an explicit human decision, not a cryptographic "
+              "attestation of the code being released.", file=sys.stderr)
 
 def find_worker(name):
     if not WORKER_NAME.match(name):
@@ -814,13 +962,25 @@ def find_worker(name):
     for base in (ROOT / "agents", KIT / "agents"):
         role = base / f"{name}.md"
         if role.exists():
+            resolved = role.resolve()
+            inside = False
+            for allowed in (ROOT, KIT):
+                try:
+                    resolved.relative_to(Path(allowed).resolve())
+                    inside = True
+                    break
+                except ValueError:
+                    continue
+            if not inside:
+                fail(f"worker contract {role} resolves outside the project and "
+                     f"the kit ({resolved}); refusing to read it")
             return role
     fail(f"Unknown worker: {name} (searched {ROOT / 'agents'} and {KIT / 'agents'})")
 
 def cmd_worker(args):
     role = find_worker(args.worker)
     print(f"Worker contract: {role}")
-    print(role.read_text())
+    print(_trusted_text(role, "worker contract"))
     print("\nRead .juicer/mission.md, .juicer/plan.md and .juicer/handoff.md before execution.")
     print("This command intentionally does not call a model. The active harness executes the worker.")
 
@@ -901,7 +1061,10 @@ def main():
     spa = sub.add_parser("ship-approve")
     spa.add_argument("--by", default=None, metavar="ID", help=by_help)
     spa.set_defaults(fn=cmd_ship_approve)
-    sub.add_parser("init", parents=[trust]).set_defaults(fn=cmd_init)
+    init = sub.add_parser("init", parents=[trust])
+    init.add_argument("--nested", action="store_true",
+                      help="create a separate workspace inside an existing Juicer project")
+    init.set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)
     cp = sub.add_parser("checkpoint"); cp.add_argument("status", choices=["executing","blocked","ready","done"]); cp.set_defaults(fn=cmd_checkpoint)

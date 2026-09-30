@@ -85,10 +85,11 @@ def test_approve_rejected_outside_allowed_states(tmp_path):
 
     assert run(tmp_path, "checkpoint", "ready").returncode == 0
     assert run(tmp_path, "finish").returncode == 0
-    r = run(tmp_path, "approve")
-    assert r.returncode == 1
-    assert "Cannot approve" in r.stderr
-    assert state(tmp_path)["status"] == "done"
+    # `done` is allowed: a plan edited after finish must be re-approvable
+    # before ship-approve, otherwise the workspace can never ship again.
+    r = run(tmp_path, "approve", "--by=test")
+    assert r.returncode == 0, r.stderr
+    assert state(tmp_path)["approved"] is True
 
 
 def test_start_blocked_before_approval(tmp_path):
