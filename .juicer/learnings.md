@@ -46,3 +46,52 @@ A key that parses is not a key that applies. When mirroring a vendor
 schema, verify key names against the schema of the version that
 enforces it, and never write a test that only asserts what the generator
 emits — assert against the schema source.
+
+### 2026-09-30 — Validation that runs after the write is not a guarantee
+
+**Observation:**
+Manifest entries were validated two passes before any read or delete, but
+a new ownership rule was initially enforced only in the same place —
+after `adapter.sync()` had already created the files. A test asserting
+"the adapter cannot generate a path it does not own" failed because the
+file existed on disk even though the command exited 1.
+
+**Root cause:**
+The safety check lived in the reconciler, which is downstream of the
+producer. Reporting `no files touched` was true for deletions only; the
+write side had already happened.
+
+**Resolution:**
+Move the check to the producer: `write_generated()` validates ownership
+under a scoped "current adapter" binding set by `_sync_one`, and the
+reconciler repeats it on load for defence in depth.
+
+**Reusable rule:**
+Any claim of the form "nothing was touched" must be enforced at the
+operation that touches the filesystem, not at a later audit of it. Audit
+after the fact proves detection, not prevention — and a test that checks
+the exit code will not catch the litter. Assert on the artifact too.
+
+### 2026-09-30 — A flag is not an approval; an approval needs a target
+
+**Observation:**
+`state.approved = true` plus a well-formed provenance record stayed
+valid after `.juicer/plan.md` was rewritten. `juicer start` happily began
+work on a plan nobody had approved; `status` reported `approved: true`.
+
+**Root cause:**
+The record bound *who* and *when*, but not *what*. Content was edited
+after approval and nothing compared it.
+
+**Resolution:**
+`approve` stores plan and mission content digests plus `mission_id`;
+every gate re-derives the same parts and compares. Mismatch downgrades
+the flag and `status` explains it on stderr while stdout stays pure JSON.
+
+**Reusable rule:**
+Binding a decision to an identity and a timestamp only prevents
+impersonation of the decision-maker. To prevent substitution of the
+*object* of the decision, record a digest of that object at approval
+time and re-derive it at use time — and let the user repair the flow
+(`done` became a valid source state for `approve`) rather than stranding
+the workspace.
