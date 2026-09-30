@@ -84,11 +84,17 @@ def _trusted_text(path, what):
 # silently resurrecting lost state.
 
 _lock_depth = 0
+_lock_warned = False
 
 @contextlib.contextmanager
 def state_lock():
     """Exclusive advisory lock over the workspace state (reentrant)."""
-    global _lock_depth
+    global _lock_depth, _lock_warned
+    if fcntl is None and not _lock_warned:
+        _lock_warned = True
+        print("warning: this platform has no fcntl; state locking is not "
+              "enforced, only the revision fence applies (docs/security.md §8)",
+              file=sys.stderr)
     if fcntl is None or _lock_depth:
         _lock_depth += 1
         try:
@@ -121,7 +127,7 @@ def _read_disk_state():
 def read_state():
     disk = _read_disk_state()
     if disk is None:
-        return {"schema":1,"kit_version":"2.3.0","status":"uninitialized"}
+        return {"schema":1,"kit_version":"2.4.0","status":"uninitialized"}
     return disk
 
 def _state_revision(state):
@@ -179,7 +185,7 @@ def update_state(mutator):
     with state_lock():
         state = _read_disk_state()
         if state is None:
-            state = {"schema":1,"kit_version":"2.3.0","status":"idle","mission_id":None,
+            state = {"schema":1,"kit_version":"2.4.0","status":"idle","mission_id":None,
                      "current_unit":None,"approved":False,"ship_approved":False}
         mutator(state)
         if state.get("ship_approved"):
@@ -568,7 +574,7 @@ def show_capabilities(target):
         fail(f"Adapter '{adapter.id}' capabilities() must return a dict")
     info = adapter.discover(make_ctx())
     print(f"id: {adapter.id}")
-    print("capabilities:")
+    print("capabilities (declared):")
     for key, value in caps.items():
         print(f"  {key}: {_format(value)}")
     print("discover:")
@@ -646,7 +652,8 @@ def _validate_manifest(adapter, manifest):
             unsafe.append(str(error))
     if unsafe:
         fail(f"adapter {adapter.id!r} manifest contains {len(unsafe)} unsafe "
-             "entr" + ("y" if len(unsafe) == 1 else "ies") + " (no files touched): "
+             "entr" + ("y" if len(unsafe) == 1 else "ies")
+             + " (aborting: nothing will be read, deleted or recorded): "
              + "; ".join(unsafe))
 
 def _validate_change_paths(adapter, changes):
@@ -659,8 +666,8 @@ def _validate_change_paths(adapter, changes):
         except ValueError as error:
             unsafe.append(str(error))
     if unsafe:
-        fail(f"adapter {adapter.id!r} produced unsafe paths (no files touched): "
-             + "; ".join(unsafe))
+        fail(f"adapter {adapter.id!r} produced unsafe paths (nothing will be "
+             "recorded in the manifest or deleted): " + "; ".join(unsafe))
 
 def apply_manifest(adapter, changes, dry_run=False, check=False, force=False):
     """Reconcile generated files against the adapter's manifest.
@@ -877,7 +884,7 @@ def cmd_init(args):
         copy_missing(KIT / tree, ROOT / tree)
     ensure_project_gitignore()
     sync("all")
-    print("Juicer Kit v2.3.0 initialized.")
+    print("Juicer Kit v2.4.0 initialized.")
     if ancestor is not None:
         print(f"note: nested workspace created inside {ancestor}; "
               "commands run here target this directory only.",

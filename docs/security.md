@@ -219,3 +219,7 @@ operator's responsibility.
 9. **No secret scanning.** See §5.
 10. **OpenCode V2 `permissions` is not applied upstream.** The legacy
     `permission` map is the only enforced form today.
+11. **Workflow files are created with the process umask** (typically
+    `0644`): other local users can *read* `state.json`, the approval
+    records and the mission/plan, but cannot write them. None of these
+    files is treated as secret — see §5.

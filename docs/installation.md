@@ -10,6 +10,11 @@ Copy Juicer Kit into your project and run:
 ./juicer-kit/bin/juicer init
 ```
 
+The initializer refuses to run in a subdirectory of an existing Juicer
+workspace; pass `--nested` to create a separate workspace root there on
+purpose. It writes a managed `.gitignore` block that lists only the
+paths Juicer generates, so harness configuration you own stays tracked.
+
 Or copy `bin/juicer` somewhere on your PATH.
 
 ## OpenCode

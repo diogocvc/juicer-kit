@@ -24,7 +24,7 @@ def cli_capabilities(name):
     caps = {}
     in_block = False
     for line in r.stdout.splitlines():
-        if line == "capabilities:":
+        if line == "capabilities (declared):":
             in_block = True
             continue
         if in_block:

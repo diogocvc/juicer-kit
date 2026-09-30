@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 FRONTMATTER_DELIM = "---"
 ACCESS_LEVELS = ("read-only", "edit", "full")
 TIER_LEVELS = ("hot", "warm", "cold")
+WORKER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
 @dataclass
@@ -325,6 +326,11 @@ def iter_workers(ctx):
     for path in sorted(agents_dir.glob("*.md")):
         if not trusted_source(ctx, path):
             print(f"warning: skipping worker outside the project/kit roots: {path}",
+                  file=sys.stderr)
+            continue
+        if not WORKER_NAME.match(path.stem):
+            print(f"warning: skipping {path.name!r}: a worker name must match "
+                  "^[a-z][a-z0-9-]*$ (it is embedded in generated files)",
                   file=sys.stderr)
             continue
         frontmatter, body = read_frontmatter(path)

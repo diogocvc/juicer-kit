@@ -1,4 +1,4 @@
-# Juicer Kit v2.3.0
+# Juicer Kit v2.4.0
 
 **A harness-agnostic operating system for AI-native software development.**
 
@@ -99,7 +99,13 @@ Then:
 ./bin/juicer mission "Build feature X"
 ```
 
-The installer creates the runtime state and mirrors workers and portable skills into supported harness locations.
+The installer creates the runtime state and mirrors workers and portable
+skills into supported harness locations. It refuses to run in a
+subdirectory of an existing Juicer workspace unless you pass `--nested`,
+which creates a separate workspace root there on purpose. The
+`.gitignore` block it writes lists the exact paths Juicer generates, not
+whole harness directories, so your own harness configuration stays
+tracked.
 
 Adapters are executable Python. By default only the adapters bundled
 with the kit are loaded; to load adapters from the project's
@@ -293,6 +299,7 @@ MIT.
 - Português: `docs/GUIDE.pt-BR.md`
 - Architecture: `docs/architecture.md`
 - Adapter Contract: `docs/adapter-contract.md`
+- Security model: `docs/security.md`
 - Installation: `docs/installation.md`
 - Worker Protocol: `docs/worker-protocol.md`
 - Migration from v1: `docs/migration-v1.md`

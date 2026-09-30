@@ -1,19 +1,21 @@
 """Security baseline: approval binding, source trust, ownership, identity.
 
-Covers audit findings B-01..B-03 (regression), H-01..H-05, M-01, M-02
-and M-05..M-07: the approval must cover the content it approves,
-generated harness files must never come from outside the project/kit, an
-adapter may only delete what it owns, init must not silently fork the
-workspace, status must be read-only, generated harness permissions must
-follow the declared access level, dry runs must touch nothing, and
-approval provenance must be visible and honest about what it does not
-prove.
+Covers audit findings B-01..B-03 (regression), H-01..H-05, M-01, M-02,
+M-05..M-07 and L-03/L-05: the approval must cover the content it
+approves, generated harness files must never come from outside the
+project/kit, an adapter may only delete what it owns, init must not
+silently fork the workspace, status must be read-only, generated harness
+permissions must follow the declared access level, dry runs must touch
+nothing, approval provenance must be visible and honest about what it
+does not prove, a hostile filename must not reach generated content, and
+a lock that could not be taken must say so.
 """
 
 import hashlib
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -441,3 +443,54 @@ def test_sync_is_quiet_when_permissions_are_unchanged(tmp_path):
     r = run(tmp_path, "sync", "all")
     assert r.returncode == 0, r.stderr
     assert "permission configuration changed" not in r.stderr
+
+
+# --- L-03: a filename must not be able to break out of generated text ----
+
+def test_hostile_worker_name_is_skipped_and_never_rendered(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    hostile = tmp_path / "agents" / "evil-->inject.md"
+    hostile.write_text((tmp_path / "agents" / "reviewer.md").read_text())
+
+    r = run(tmp_path, "sync", "all")
+    assert r.returncode == 0, r.stderr
+    assert "must match ^[a-z][a-z0-9-]*$" in r.stderr
+    assert "evil-->inject.md" in r.stderr
+
+    rendered = []
+    for harness in (".opencode", ".claude", ".cursor", ".codex"):
+        directory = tmp_path / harness / "agents"
+        if directory.is_dir():
+            rendered += [p.name for p in directory.iterdir()]
+    assert not [name for name in rendered if name.startswith("evil")], rendered
+
+    for manifest in (tmp_path / ".juicer" / "runtime" / "manifests").glob("*.json"):
+        assert "evil" not in manifest.read_text(), manifest.name
+    assert not [p for p in tmp_path.glob("**/*inject*")
+                if ".opencode" in p.parts or ".claude" in p.parts
+                or ".cursor" in p.parts or ".codex" in p.parts]
+
+
+def test_valid_worker_names_still_render(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    (tmp_path / "agents" / "my-worker-2.md").write_text(
+        (tmp_path / "agents" / "reviewer.md").read_text())
+    r = run(tmp_path, "sync", "opencode")
+    assert r.returncode == 0, r.stderr
+    assert "must match" not in r.stderr
+    assert (tmp_path / ".opencode" / "agents" / "my-worker-2.md").exists()
+
+
+# --- L-05: a lock that could not be taken must say so --------------------
+
+def test_missing_fcntl_warns_that_locking_is_downgraded(tmp_path):
+    assert run(tmp_path, "init").returncode == 0
+    code = ("import sys, runpy; sys.modules['fcntl'] = None; "
+            "sys.argv = ['juicer', 'mission', 'Lock probe']; "
+            f"runpy.run_path({str(CLI)!r}, run_name='__main__')")
+    r = subprocess.run([sys.executable, "-c", code], cwd=str(tmp_path),
+                       text=True, capture_output=True)
+    assert r.returncode == 0, r.stderr
+    assert "state locking is not enforced" in r.stderr
+    assert "docs/security.md" in r.stderr
+    assert state(tmp_path)["status"] == "planning"

@@ -1,10 +1,10 @@
-# Juicer Kit v2.3 — Complete Guide
+# Juicer Kit v2.4 — Complete Guide
 
 > A harness-agnostic operating system for AI-native software development.
 
 ## 1. Introduction
 
-Juicer Kit v2.3 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
+Juicer Kit v2.4 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
 
 The central principle is: **the user owns the mission; agents execute work inside it.**
 
@@ -52,6 +52,7 @@ juicer-kit/
 │   ├── handoff.md
 │   ├── decisions.md
 │   ├── learnings.md
+│   ├── templates/
 │   └── workflows/
 ├── agents/
 ├── .agents/skills/
@@ -62,6 +63,11 @@ juicer-kit/
 ```
 
 `.juicer/` is persistent workflow state. `agents/` contains canonical worker contracts. `.agents/skills/` contains portable skills. `adapters/` contains harness integrations. `AGENTS.md` is the universal project-level agent entrypoint. `bin/juicer` manages deterministic state.
+
+`.juicer/templates/` holds the pristine files that `init` and
+`juicer mission` copy from. The `.juicer/*.md` files at the top level are
+live workflow state — in this repository they are the kit's own, and they
+are never used as a template for another project.
 
 ## 4. Prerequisites
 
@@ -84,7 +90,16 @@ Models are not hardcoded into worker contracts. Model/provider selection belongs
 ./bin/juicer adapters
 ```
 
-The initializer creates the `.juicer/` state and synchronizes supported adapters.
+The initializer creates the `.juicer/` state and synchronizes supported
+adapters. It refuses to run in a subdirectory of an existing Juicer
+workspace unless you pass `--nested`, which creates a separate workspace
+root there on purpose rather than silently spanning two roots.
+
+The managed block it writes into `.gitignore` lists the exact paths
+Juicer generates (`.claude/agents/`, `.opencode/agents/`, …), not whole
+harness directories, so configuration you own — `opencode.json`,
+`.claude/settings.json`, `.mcp.json` — stays tracked. Re-running `init`
+rewrites a stale block in place and leaves every other line alone.
 
 Adapters from the project's `adapters/` directory are executable Python
 and are not loaded by default; use `--trust-project-adapters` (or
@@ -149,6 +164,15 @@ digest. It proves *that a record was written by a process that named
 itself* — it does **not** prove that a particular human was at the
 keyboard. See [`security.md`](security.md).
 
+The approval covers the content it approved. Editing `.juicer/plan.md`
+or `.juicer/mission.md` afterwards invalidates the record until
+`juicer approve` runs again; `juicer status` reports `invalidated` and
+the reason. A ship approval additionally records `code_binding`: `sha`
+when git bound it to the commit and working tree, `failed` when git
+errored, `none` outside a git repository — and in the last two cases
+`juicer status` warns that the approval does **not** cover source
+changes.
+
 Agents must never infer approval.
 
 Approval lives in state: `./bin/juicer status` shows `approved` and
@@ -185,7 +209,7 @@ Workers are first-class and can be invoked directly. Native orchestration is opt
 
 Canonical skills live under `.agents/skills/`.
 
-v2.3 includes:
+The kit ships:
 
 ```text
 mission-control
@@ -387,6 +411,17 @@ command. See [`security.md`](security.md).
 Project adapters are executable Python and are untrusted by default
 (see section 19); load them only in repositories you trust.
 
+`juicer sync` snapshots the permission configuration of every generated
+harness file it is about to rewrite and warns on stderr when it changes.
+Those mirrors are gitignored, so without this a change to what the
+harness would allow would be invisible in a pull request. The warning
+reports the movement, not a judgement about it — review the diff before
+shipping.
+
+`juicer capabilities` prints what the adapter **declares**; `discover`
+reports what Juicer observed (binary on `PATH`, version). A declaration
+is metadata, not a verification that the harness honours it.
+
 ## 17. Troubleshooting
 
 ### Worker not found
@@ -511,7 +546,7 @@ core → Cursor
 v2 replaces the previous OpenCode-centered architecture.
 
 1. Back up the project.
-2. Install v2.3.
+2. Install v2.4.
 3. Convert active backlog items into `.juicer/plan.md`.
 4. Move durable decisions into `.juicer/decisions.md`.
 5. Move reusable knowledge into `.juicer/learnings.md`.

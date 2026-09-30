@@ -1,5 +1,5 @@
 name: juicer-kit
-version: 2.3.0
+version: 2.4.0
 architecture: harness-agnostic
 state_dir: .juicer
 skills_source: .agents/skills
@@ -8,7 +8,7 @@ universal_entrypoint: AGENTS.md
 human_control: required
 
 adapter_contract:
-  version: 1
+  version: 2
   required_methods:
     - discover
     - install

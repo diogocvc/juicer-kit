@@ -1,10 +1,10 @@
-# Juicer Kit v2.3 — Guia Completo
+# Juicer Kit v2.4 — Guia Completo
 
 > Um sistema operacional agnóstico de harness para desenvolvimento de software AI-native.
 
 ## 1. Introdução
 
-Juicer Kit v2.3 é um sistema de workflow portátil para desenvolvimento de software AI-native. Ele separa o estado de workflow persistente, os contratos de workers, skills reutilizáveis e adapters específicos de cada harness.
+Juicer Kit v2.4 é um sistema de workflow portátil para desenvolvimento de software AI-native. Ele separa o estado de workflow persistente, os contratos de workers, skills reutilizáveis e adapters específicos de cada harness.
 
 O princípio central é: **o usuário é dono da missão; os agentes executam o trabalho dentro dela.**
 
@@ -52,6 +52,7 @@ juicer-kit/
 │   ├── handoff.md
 │   ├── decisions.md
 │   ├── learnings.md
+│   ├── templates/
 │   └── workflows/
 ├── agents/
 ├── .agents/skills/
@@ -62,6 +63,11 @@ juicer-kit/
 ```
 
 `.juicer/` é o estado de workflow persistente. `agents/` contém os contratos canônicos de workers. `.agents/skills/` contém as skills portáveis. `adapters/` contém as integrações com harnesses. `AGENTS.md` é o entrypoint universal de agentes do projeto. `bin/juicer` gerencia o estado de forma determinística.
+
+`.juicer/templates/` guarda os arquivos prístines que `init` e
+`juicer mission` copiam. Os arquivos `.juicer/*.md` no nível superior são
+estado de workflow vivo — neste repositório eles são os do próprio kit e
+nunca servem de modelo para outro projeto.
 
 ## 4. Pré-requisitos
 
@@ -84,7 +90,18 @@ Modelos não são definidos nos contratos dos workers. A seleção de modelo/pro
 ./bin/juicer adapters
 ```
 
-O inicializador cria o estado `.juicer/` e sincroniza os adapters suportados.
+O inicializador cria o estado `.juicer/` e sincroniza os adapters
+suportados. Ele se recusa a rodar em um subdiretório de um workspace
+Juicer existente, a menos que você passe `--nested`, que cria ali um
+workspace separado de propósito, em vez de conectar silenciosamente duas
+raízes.
+
+O bloco gerenciado que ele escreve no `.gitignore` lista os caminhos
+exatos que o Juicer gera (`.claude/agents/`, `.opencode/agents/`, …),
+não diretórios inteiros do harness — assim a configuração que é sua
+(`opencode.json`, `.claude/settings.json`, `.mcp.json`) continua
+versionada. Rodar `init` de novo reescreve um bloco obsoleto no lugar e
+não toca em nenhuma outra linha.
 
 Adapters do diretório `adapters/` do projeto são Python executável e não
 são carregados por padrão; use `--trust-project-adapters` (ou
@@ -125,12 +142,15 @@ Uma sessão de chat é temporária. O estado da missão é persistente. Uma sess
 
 ## 7. Controle humano e gates de aprovação
 
-O Juicer usa quatro gates explícitos:
+O Juicer define quatro gates. Dois são impostos pelo CLI, dois são
+convenções que só humanos e agentes conseguem sustentar:
 
-1. **Planejamento** — a implementação só começa após a aprovação do plano.
-2. **Escopo** — cada unidade tem escopo e critérios de aceitação explícitos.
-3. **Verificação** — conclusão exige evidências.
-4. **Ship** — ações com impacto em produção exigem aprovação humana explícita.
+| # | Gate | Tipo | O que realmente te impede |
+|---|---|---|---|
+| 1 | Planejamento | mecânico | `juicer start` se recusa sem um registro de aprovação de plano válido |
+| 2 | Escopo | convenção | nada — o CLI grava apenas o id da unidade |
+| 3 | Verificação | convenção | nada — o CLI nunca confere se os testes rodaram |
+| 4 | Ship | mecânico | `juicer ship-approve` grava um registro ligado ao plano, à missão, à unidade e (num repositório git) ao estado do código; `juicer status` o reporta |
 
 Comandos:
 
@@ -139,13 +159,31 @@ Comandos:
 ./bin/juicer ship-approve
 ```
 
+Ambos exigem uma identidade: o usuário do sistema quando rodados em um
+TTY, ou um `--by=<id>` explícito (por exemplo `--by=ci`). Sem um dos
+dois, saem com código 1. O registro guarda `by`, `at`, `via`, `revision`
+e o digest do alvo aprovado. Ele prova *que um registro foi gravado por
+um processo que se identificou* — **não** prova que um humano em
+particular estava no teclado. Veja [`security.md`](security.md).
+
+A aprovação cobre o conteúdo que ela aprovou. Editar
+`.juicer/plan.md` ou `.juicer/mission.md` depois invalida o registro até
+que `juicer approve` rode de novo; `juicer status` reporta `invalidated`
+e o motivo. A aprovação de ship grava ainda o `code_binding`: `sha`
+quando o git a ligou ao commit e à árvore de trabalho, `failed` quando o
+git falhou, `none` fora de um repositório git — e nos dois últimos casos
+`juicer status` avisa que a aprovação **não** cobre as mudanças de
+código.
+
 Agentes nunca devem inferir aprovação.
 
 A aprovação fica no estado: `./bin/juicer status` mostra `approved` e
-`ship_approved`. O CLI não executa nenhuma ação de produção por si, então
-as skills e workflows de release devem verificar que `ship_approved` é
-`true` antes de qualquer passo com impacto em produção e parar enquanto
-for `false`.
+`ship_approved` juntos com seus registros. O CLI não executa nenhuma
+ação de produção por si, então as skills e workflows de release devem
+verificar que `ship_approved` é `true` antes de qualquer passo com
+impacto em produção e parar enquanto for `false`. Essa última instrução
+governa o comportamento do agente; não é um mecanismo capaz de parar um
+processo sozinho.
 
 ## 8. Workers
 
@@ -174,7 +212,7 @@ Workers são de primeira classe e podem ser invocados diretamente. A orquestraç
 
 As skills canônicas ficam em `.agents/skills/`.
 
-A v2.3 inclui:
+O kit inclui:
 
 ```text
 mission-control
@@ -368,10 +406,25 @@ Remediação
 
 Nunca faça commit de chaves de API, chaves privadas, senhas, tokens ou credenciais de produção.
 
-Ações destrutivas e com impacto em produção permanecem atrás de aprovação humana explícita.
+Ações destrutivas e com impacto em produção permanecem atrás de um
+registro de aprovação explícito (`juicer approve`, `juicer ship-approve`).
+O registro nomeia uma identidade; ele não autentica uma pessoa, e é o
+harness/OS que de fato pode recusar o comando. Veja
+[`security.md`](security.md).
 
 Adapters de projeto são Python executável e não confiados por padrão
 (veja a seção 19); carregue-os apenas em repositórios confiáveis.
+
+O `juicer sync` tira uma fotografia da configuração de permissão de cada
+arquivo de harness gerado que está prestes a reescrever e avisa no
+stderr quando ela muda. Esses espelhos são ignorados pelo git, então sem
+esse aviso uma mudança no que o harness permitiria passaria invisível em
+um pull request. O aviso reporta a mudança, não um julgamento sobre ela
+— revise o diff antes de publicar.
+
+`juicer capabilities` imprime o que o adapter **declara**; `discover`
+reporta o que o Juicer observou (binário no `PATH`, versão). Uma
+declaração é metadado, não uma verificação de que o harness a acata.
 
 ## 17. Solução de problemas
 
@@ -497,7 +550,7 @@ core → Cursor
 A v2 substitui a arquitetura anterior centrada no OpenCode.
 
 1. Faça backup do projeto.
-2. Instale a v2.3.
+2. Instale a v2.4.
 3. Converta itens ativos do backlog em `.juicer/plan.md`.
 4. Mova decisões duráveis para `.juicer/decisions.md`.
 5. Mova conhecimento reutilizável para `.juicer/learnings.md`.
