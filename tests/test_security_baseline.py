@@ -471,6 +471,17 @@ def test_hostile_worker_name_is_skipped_and_never_rendered(tmp_path):
                 or ".cursor" in p.parts or ".codex" in p.parts]
 
 
+def test_worker_warnings_are_emitted_once_per_sync_all(tmp_path):
+    """`sync all` walks every adapter; a bad worker must not warn once each."""
+    assert run(tmp_path, "init").returncode == 0
+    hostile = tmp_path / "agents" / "evil-->inject.md"
+    hostile.write_text((tmp_path / "agents" / "reviewer.md").read_text())
+
+    r = run(tmp_path, "sync", "all")
+    assert r.returncode == 0, r.stderr
+    assert r.stderr.count("must match ^[a-z][a-z0-9-]*$") == 1, r.stderr
+
+
 def test_valid_worker_names_still_render(tmp_path):
     assert run(tmp_path, "init").returncode == 0
     (tmp_path / "agents" / "my-worker-2.md").write_text(

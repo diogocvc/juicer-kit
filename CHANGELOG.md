@@ -15,6 +15,32 @@ document brought back in line with the mechanism behind it. The full
 threat model, trust boundary and limitation list live in
 `docs/security.md`.
 
+The final hardening round below was committed **after** the `v2.4.0`
+tag (`ec174d9`); the tag was not moved and no new tag was cut.
+
+### Release flow
+
+- **One canonical order everywhere: `build/package < ship-approve <
+  publish/deploy/release`.** `.juicer/workflows/release.md` now builds in
+  step 4 and deploys in step 6, `agents/devops.md` splits its old rule 9
+  into "build before `ship-approve`" and "verify `ship_approved` before
+  deploy/publish/release", and both guides say which `devops` step the
+  diagrams mean. The reason is mechanical: `ship-approve` binds
+  `git status --porcelain`, so an artifact created after approval
+  invalidates it. `docs/security.md` §3 now records that, plus the two
+  edges of the binding — ignored paths never bind, a commit invalidates
+  by design and a tag does not.
+- **`read-only` is documented as a permission level, not a uniform
+  capability.** `docs/adapter-contract.md` and `docs/security.md` §6
+  carry the per-harness Git-inspection matrix (Claude Code and OpenCode
+  have no shell; Codex and Cursor can run non-state-changing commands;
+  Zed has no restriction), §8 lists it as a known limitation, and the
+  reviewer/debugger/security contracts say to ask the caller for the diff
+  when there is no shell. Permission mappings are unchanged.
+- **Small fixes:** the CLI docstring still said v2.3, and a sync warning
+  was printed once per adapter — four identical lines for `sync all`.
+  Both now use the version file's value / print once per process.
+
 ### Security
 
 - **Every CLI write is confined.** `bin/juicer` routes its writes through
@@ -111,7 +137,7 @@ threat model, trust boundary and limitation list live in
 - New `docs/security.md`: threat model, trust boundary, approval model
   (targets and invalidation), filesystem boundary, secrets, harness
   permissions with per-harness enforced-vs-convention, prompt-injection
-  posture, and 11 known limitations.
+  posture, and 12 known limitations.
 - `README.md` gates and security sections rewritten to distinguish
   enforcement, convention, harness dependence and recorded evidence,
   with the trust boundary diagram.
@@ -136,7 +162,7 @@ threat model, trust boundary and limitation list live in
 
 ### Test suite
 
-174 tests (was 112 at the start of the audit): approval binding, source
+183 tests (was 112 at the start of the audit): approval binding, source
 trust, ownership, nested-init refusal, read-only status, dry-run purity,
 permission-change warnings, template provenance, hostile filenames,
 lock-downgrade reporting, gitignore precision and version consistency.

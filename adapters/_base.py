@@ -28,6 +28,22 @@ ACCESS_LEVELS = ("read-only", "edit", "full")
 TIER_LEVELS = ("hot", "warm", "cold")
 WORKER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
+_WARNED = set()
+
+
+def warn_once(message):
+    """Print a sync warning at most once per process.
+
+    ``sync all`` walks every adapter, so the same bad worker or source
+    would otherwise emit the identical line once per adapter. Distinct
+    messages still print, and a fresh process starts clean — a separate
+    ``juicer sync <adapter>`` warns again.
+    """
+    if message in _WARNED:
+        return
+    _WARNED.add(message)
+    print(f"warning: {message}", file=sys.stderr)
+
 
 @dataclass
 class Ctx:
@@ -325,13 +341,11 @@ def iter_workers(ctx):
         return
     for path in sorted(agents_dir.glob("*.md")):
         if not trusted_source(ctx, path):
-            print(f"warning: skipping worker outside the project/kit roots: {path}",
-                  file=sys.stderr)
+            warn_once(f"skipping worker outside the project/kit roots: {path}")
             continue
         if not WORKER_NAME.match(path.stem):
-            print(f"warning: skipping {path.name!r}: a worker name must match "
-                  "^[a-z][a-z0-9-]*$ (it is embedded in generated files)",
-                  file=sys.stderr)
+            warn_once(f"skipping {path.name!r}: a worker name must match "
+                      "^[a-z][a-z0-9-]*$ (it is embedded in generated files)")
             continue
         frontmatter, body = read_frontmatter(path)
         yield Worker(name=path.stem, path=path, frontmatter=frontmatter, body=body)
@@ -361,8 +375,7 @@ def mirror_skills(ctx, destination, dry_run=False):
         if not src.is_file():
             continue
         if not trusted_source(ctx, src):
-            print(f"warning: skipping skills source outside the project/kit roots: {src}",
-                  file=sys.stderr)
+            warn_once(f"skipping skills source outside the project/kit roots: {src}")
             continue
         rel = src.relative_to(source)
         dst = confine_generated(ctx.root, destination / rel, what="skills mirror path")

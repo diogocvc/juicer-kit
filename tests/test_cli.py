@@ -18,6 +18,7 @@ def test_version_files():
     assert json.loads((ROOT / ".juicer" / "state.json").read_text())["kit_version"] == version
     cli = (ROOT / "bin" / "juicer").read_text()
     assert f"Juicer Kit v{version} initialized." in cli
+    assert f"Juicer Kit v{version} CLI." in cli
     assert cli.count(f'"kit_version":"{version}"') == 2
 
 def test_roles_exist():
