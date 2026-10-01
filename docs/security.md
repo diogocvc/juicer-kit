@@ -134,6 +134,17 @@ The record does not float: it names the exact content it covers.
   one — the flag is ignored, never trusted on its own.
 - `.juicer/` itself is excluded from the git-dirty component, so Juicer's
   own persistence can never invalidate an approval by itself.
+- Build/package artifacts outside `.juicer/` are part of `git_dirty`: run
+  them **before** `ship-approve`. The same path appearing afterwards
+  changes the digest and invalidates the approval. This is why the
+  canonical order is `build/package < ship-approve <
+  publish/deploy/release` — see `docs/GUIDE.md` §13 and
+  `.juicer/workflows/release.md`.
+- Ignored paths never appear in `git status --porcelain`, so build output
+  listed in `.gitignore` is outside the binding by construction.
+- A commit after approval changes `git_head` and invalidates it by design.
+  Creating a tag does not: tags are not in `git status --porcelain` and do
+  not move `HEAD`.
 
 **What a record proves:** that a process identifying itself as `by`
 produced an approval for a specific target, at a specific state revision,

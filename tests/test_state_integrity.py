@@ -392,3 +392,74 @@ def test_mission_writes_both_files_in_one_lock(tmp_path):
     cli.cmd_mission(argparse.Namespace(objective="Locked mission"))
     assert depth["seen"] == 1, "state was written outside the lock"
     assert "Locked mission" in (tmp_path / ".juicer" / "mission.md").read_text()
+
+
+# --- Release ordering: build/package < ship-approve < publish/release ------
+
+def _git_repo(tmp_path, *committed):
+    git(tmp_path, "init")
+    git(tmp_path, "config", "user.email", "test@example.com")
+    git(tmp_path, "config", "user.name", "Test")
+    ready_project(tmp_path)
+    for name in committed:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("payload\n")
+    git(tmp_path, "add", "-A")
+    assert git(tmp_path, "commit", "-m", "base").returncode == 0
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_artifact_built_before_approval_survives_state_writes(tmp_path):
+    """The canonical order works: build/package runs before ship-approve."""
+    _git_repo(tmp_path)
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "app.tgz").write_text("payload\n")
+
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True
+
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True
+    r = run(tmp_path, "status")
+    assert "ship_approved invalidated" not in r.stderr
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_artifact_built_after_approval_invalidates_it(tmp_path):
+    """The inverted order fails: the artifact leaves the approved target."""
+    _git_repo(tmp_path)
+
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "app.tgz").write_text("payload\n")
+
+    r = run(tmp_path, "status")
+    assert "ship_approved invalidated" in r.stderr
+    shown = json.loads(r.stdout.split("\navailable:")[0])
+    assert shown["ship_approved"] is False
+
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    assert state(tmp_path)["ship_approved"] is False
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_gitignored_artifact_is_outside_the_ship_binding(tmp_path):
+    """Ignored paths are not in `git status --porcelain`, so they never bind."""
+    _git_repo(tmp_path)
+    (tmp_path / ".gitignore").write_text("dist/\n")
+    git(tmp_path, "add", "-A")
+    assert git(tmp_path, "commit", "-m", "ignore dist").returncode == 0
+
+    assert run(tmp_path, "ship-approve", "--by=test").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "app.tgz").write_text("payload\n")
+    assert "app.tgz" not in git(tmp_path, "status", "--porcelain").stdout
+
+    assert run(tmp_path, "checkpoint", "ready").returncode == 0
+    assert state(tmp_path)["ship_approved"] is True

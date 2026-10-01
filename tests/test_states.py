@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -347,3 +348,54 @@ def test_ship_gate_consumers_require_state_check():
     assert "ship_approved" in skill
     assert "ship_approved" in workflow
     assert "ship_approved" in devops
+
+
+def numbered_steps(text):
+    """Numbered list items with their wrapped continuation lines joined."""
+    steps, current = [], None
+    for line in text.splitlines():
+        match = re.match(r"^(\d+)\.\s+(.*)$", line)
+        if match:
+            current = [int(match.group(1)), match.group(2)]
+            steps.append(current)
+        elif current is not None and line[:1] in (" ", "\t"):
+            current[1] += " " + line.strip()
+        elif line.startswith("#"):
+            current = None
+    return [(n, text) for n, text in steps]
+
+
+def test_release_order_is_build_then_approve_then_release():
+    """`build/package < ship-approve < publish/deploy/release` in every list."""
+    def is_release(step):
+        text = step.strip().lower()
+        return text in ("release", "publish") or "deploy" in text
+
+    for relpath in (".agents/skills/ship/SKILL.md",
+                    ".juicer/workflows/release.md"):
+        steps = numbered_steps((KIT / relpath).read_text())
+        build = min(n for n, t in steps if "build" in t.lower())
+        approve = min(n for n, t in steps if "ship_approved" in t)
+        release = min(n for n, t in steps if is_release(t))
+        assert build < approve < release, (relpath, steps)
+
+
+INVARIANT = "build/package < ship-approve < publish/deploy/release"
+
+
+def test_canonical_release_invariant_is_written_down():
+    for relpath in (".juicer/workflows/release.md",
+                    "docs/GUIDE.md", "docs/GUIDE.pt-BR.md"):
+        assert INVARIANT in (KIT / relpath).read_text(), relpath
+
+
+def test_devops_contract_builds_before_approving_and_gates_releasing():
+    steps = numbered_steps((KIT / "agents" / "devops.md").read_text())
+
+    gates = [t for _, t in steps if "ship_approved" in t]
+    assert gates, "no rule ties ship_approved to an action"
+    assert re.search(r"deploy|publish|release", gates[0])
+
+    builders = [t for _, t in steps if "ship-approve" in t]
+    assert builders, "no rule places build relative to ship-approve"
+    assert "before" in builders[0]

@@ -363,6 +363,15 @@ finder → analyst → refactorer → reviewer → tester
 reviewer → tester → security (when applicable) → RECORDED SHIP APPROVAL → devops
 ```
 
+In the diagrams above, `devops` **before** the ship approval is build and
+package; **after** it, deploy or release only. `ship-approve` binds
+`git status --porcelain` (`.juicer/` excluded), so an artifact created
+after approval invalidates it:
+
+```text
+build/package < ship-approve < publish/deploy/release
+```
+
 Workflows are control structures, not mandatory autonomous swarms.
 
 ## 14. Multiple harnesses
