@@ -22,6 +22,9 @@ Reproduce and isolate an unknown failure before proposing a fix.
 6. Do not declare completion without verification evidence.
 7. Record durable findings in `.juicer/handoff.md` or `.juicer/learnings.md`.
 8. Preserve human gates. Never treat a missing approval as implicit approval.
+9. If your harness gives you no shell or no Git inspection, ask the caller
+   for the diff or the information you need, or read the changed files
+   directly.
 
 ## Output
 

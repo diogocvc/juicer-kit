@@ -233,7 +233,7 @@ Juicer generates per-worker permission configuration from the canonical
 | Codex | `sandbox_mode` | yes |
 | Zed | none | **no** — no subagent permission support |
 
-Two caveats:
+Three caveats:
 
 1. The source of `access:` is `agents/*.md`, which is project-owned
    content. Changing it changes the generated permissions; `juicer sync`
@@ -243,6 +243,24 @@ Two caveats:
 2. The generated artefacts are gitignored, so they are not reviewed in a
    pull request. Review `agents/*.md` instead; the sync warning is the
    in-repo signal that the effective configuration changed.
+3. `read-only` is a permission level, not a uniform capability. What a
+   read-only worker can actually run differs by harness:
+
+   | Harness | `git status`/`diff`/`log`/`show` | `git commit`/`push`/`reset` |
+   |---|---|---|
+   | Claude Code (`tools`, no `Bash`) | no shell at all | no |
+   | OpenCode (`bash: deny`) | no shell at all | no |
+   | Codex (`sandbox_mode: read-only`) | yes | no — sandbox blocks writes |
+   | Cursor (`readonly: true`) | yes — only non-state-changing commands | no |
+   | Zed (no subagents) | yes | **no equivalent restriction** |
+
+   On Claude Code and OpenCode a read-only worker must get the diff from
+   its caller or read changed files directly; `agents/reviewer.md`,
+   `agents/debugger.md` and `agents/security.md` say so. Juicer cannot
+   make this uniform: a per-command allowlist lives in session-wide
+   harness settings and would bind `edit`/`full` workers too, and adding
+   `Bash` (or `bash: ask`) would grant a shell to every read-only worker
+   without closing the gap on Claude Code.
 
 To make `juicer approve` / `juicer ship-approve` require an out-of-band
 confirmation, configure it in the harness — for example a Claude Code
@@ -326,3 +344,8 @@ operator's responsibility.
     `0644`): other local users can *read* `state.json`, the approval
     records and the mission/plan, but cannot write them. None of these
     files is treated as secret — see §5.
+12. **`read-only` does not mean uniform Git inspection.** See §6 caveat 3:
+    a read-only worker on Claude Code or OpenCode has no shell at all, a
+    read-only worker on Codex or Cursor can run non-state-changing
+    commands, and Zed gives it no restriction at all. Juicer documents
+    the gap rather than hiding it behind a mapping it cannot enforce.

@@ -180,3 +180,31 @@ def test_workers_share_operating_contract():
             assert line in text, f"{path}: missing contract line {line!r}"
         for heading in OUTPUT_HEADINGS:
             assert heading in text, f"{path}: missing heading {heading!r}"
+
+
+# --- `read-only` is a permission level, not a uniform capability -----------
+
+GAP_STATEMENT = "`read-only` is a permission level, not a uniform capability"
+SHELL_FALLBACK_LINE = (
+    "9. If your harness gives you no shell or no Git inspection, ask the caller"
+)
+
+
+def test_read_only_git_inspection_gap_is_documented():
+    """Consistency is impossible across harnesses, so it is documented."""
+    contract = (KIT / "docs" / "adapter-contract.md").read_text()
+    security = (KIT / "docs" / "security.md").read_text()
+
+    assert GAP_STATEMENT in contract, "adapter contract lost the git matrix"
+    matrix = contract[contract.index(GAP_STATEMENT):]
+    for harness in ("OpenCode", "Claude Code", "Cursor", "Codex", "Zed"):
+        assert f"| {harness}" in matrix, f"no git-inspection row for {harness}"
+
+    assert GAP_STATEMENT in security, "security.md lost caveat 3"
+    assert "See §6 caveat 3" in security, "§8 does not point back at §6"
+    assert "**`read-only` does not mean uniform Git inspection.**" in security
+
+
+def test_read_only_workers_document_the_missing_shell_fallback():
+    for name in ("reviewer", "debugger", "security"):
+        assert SHELL_FALLBACK_LINE in (KIT / "agents" / f"{name}.md").read_text(), name

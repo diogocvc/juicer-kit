@@ -142,6 +142,24 @@ Prohibited in every generated file: `role:`, `access:`, `tier:`,
 | Codex      | `sandbox_mode`                  | `read-only`          | `workspace-write` | `workspace-write` |
 | Zed        | none (no subagents)             | —                    | —                 | —        |
 
+`read-only` is a permission level, not a uniform capability. What a
+read-only worker can actually run:
+
+| harness     | `git status`/`diff`/`log`/`show` | `git commit`/`push`/`reset` |
+|-------------|----------------------------------|-----------------------------|
+| OpenCode    | no (no shell)                    | no                          |
+| Claude Code | no (no shell)                    | no                          |
+| Cursor      | yes (non-state-changing only)    | no                          |
+| Codex       | yes (sandbox blocks writes)      | no                          |
+| Zed         | yes (no subagents, no policy)    | not restricted              |
+
+A read-only worker on Claude Code or OpenCode must obtain the diff from
+its caller or read changed files directly; `agents/reviewer.md`,
+`agents/debugger.md` and `agents/security.md` state that. Do not add
+`Bash` or switch `bash` to `ask` to close the gap: it would grant a shell
+— or an approval prompt — to every read-only worker and still would not
+make the capability uniform.
+
 `name` rules: required in `.claude/agents/`, prohibited in
 `.opencode/agents/`, omitted (filename-derived) in `.cursor/agents/`.
 
