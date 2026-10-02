@@ -13,6 +13,7 @@ MIRRORS = [
     ".cursor/agents/", ".cursor/juicer-kit.md",
     ".codex/agents/", ".codex/juicer-kit.md",
     ".juicer/runtime/", ".juicer/state.lock", ".juicer/state.json.tmp",
+    ".juicer-kit/",
 ]
 GITIGNORE_MARKER = "# Juicer Kit — generated mirrors"
 # Harness configuration the user owns: these must stay tracked.

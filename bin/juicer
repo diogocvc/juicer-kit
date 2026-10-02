@@ -31,6 +31,7 @@ PROJECT_MIRRORS = (
     ".cursor/agents/", ".cursor/juicer-kit.md",
     ".codex/agents/", ".codex/juicer-kit.md",
     ".juicer/runtime/", ".juicer/state.lock", ".juicer/state.json.tmp",
+    ".juicer-kit/",
 )
 GITIGNORE_MARKER = "# Juicer Kit — generated mirrors"
 
@@ -67,6 +68,20 @@ from _base import (Ctx, confine_generated, confine_manifest_entry,  # noqa: E402
 def fail(message):
     print(f"error: {message}", file=sys.stderr)
     sys.exit(1)
+
+def root_guard_error(force_root, uid):
+    """Refuse file-writing work as root unless --force-root is given.
+
+    Case table is shared with npm/lib/root-guard.js: non-root or unknown
+    uid is allowed, uid 0 is refused, --force-root opts out. In the npm
+    CLI, --yes never bypasses this guard either.
+    """
+    if uid is None or uid != 0:
+        return None
+    if force_root:
+        return None
+    return ("refusing to run as root without --force-root "
+            "(this writes project files)")
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -1091,6 +1106,10 @@ def render_mission(objective):
             + marker + tail)
 
 def cmd_init(args):
+    uid = os.getuid() if hasattr(os, "getuid") else None
+    guard = root_guard_error(getattr(args, "force_root", False), uid)
+    if guard:
+        fail(guard)
     ancestor = find_project_root()
     cwd = Path.cwd().resolve()
     if ancestor is not None and ancestor != cwd:
@@ -1486,6 +1505,8 @@ def main():
                       help="create a separate workspace inside an existing Juicer project")
     init.add_argument("--no-git-guard", action="store_true",
                       help="do not install the main/master pre-commit guard")
+    init.add_argument("--force-root", action="store_true",
+                      help="allow init to run as root (normally refused)")
     init.set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)

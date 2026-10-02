@@ -1,0 +1,28 @@
+{
+  "name": "@juicer-kit/cli",
+  "version": "2.4.0",
+  "description": "Juicer Kit — agentic development workflow. Installs the kit payload and runs juicer init.",
+  "license": "MIT",
+  "bin": {
+    "juicer-kit": "npm/bin/juicer-kit.js"
+  },
+  "files": [
+    "npm/bin",
+    "npm/lib",
+    "bin",
+    "adapters",
+    "agents",
+    ".agents",
+    ".juicer/templates",
+    ".juicer/workflows",
+    "AGENTS.md",
+    "VERSION",
+    "kit.yaml",
+    "!**/__pycache__",
+    "!**/*.pyc",
+    "!**/.DS_Store"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -23,3 +23,6 @@ __pycache__/
 .cursor/juicer-kit.md
 .codex/agents/
 .codex/juicer-kit.md
+
+# npm-materialized kit payload (`npx @juicer-kit/cli install`)
+.juicer-kit/
