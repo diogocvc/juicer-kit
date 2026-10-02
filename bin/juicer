@@ -1206,6 +1206,36 @@ def _mission_objective():
         return line
     return None
 
+def cmd_update(args):
+    """Delegate kit updates to the npm updater (single implementation).
+
+    The payload and `.juicer/install.json` belong to @juicer-kit/cli;
+    this command exists so a materialized kit offers `juicer update`
+    without duplicating the manifest logic in Python.
+    """
+    if not STATE.exists():
+        fail(f"missing state file {STATE}; run `juicer init` first")
+    manifest = STATE.parent / "install.json"
+    if not manifest.is_file():
+        fail("missing .juicer/install.json — this project was not installed "
+             "with `npx @juicer-kit/cli install`.\n"
+             "  run `npx @juicer-kit/cli install` to adopt the npm layout, or\n"
+             "  update a git-cloned kit with git pull.")
+    npx = shutil.which("npx")
+    if npx is None:
+        fail("npx not found — `juicer update` delegates to the npm updater.\n"
+             "  install Node >= 18, or run "
+             "`npx --yes @juicer-kit/cli update` yourself.")
+    cmd = [npx, "--yes", "@juicer-kit/cli", "update"]
+    if getattr(args, "force", False):
+        cmd.append("--force")
+    if getattr(args, "force_root", False):
+        cmd.append("--force-root")
+    print("updating via npm: npx --yes @juicer-kit/cli update"
+          + (" --force" if getattr(args, "force", False) else ""))
+    result = subprocess.run(cmd, cwd=str(ROOT))
+    sys.exit(result.returncode if result.returncode >= 0 else 1)
+
 def cmd_session(_args):
     """Read-only briefing for a fresh session; state.json is the only truth.
 
@@ -1507,6 +1537,12 @@ def main():
                       help="do not install the main/master pre-commit guard")
     init.add_argument("--force-root", action="store_true",
                       help="allow init to run as root (normally refused)")
+    upd = sub.add_parser("update")
+    upd.add_argument("--force", action="store_true",
+                     help="forwarded: overwrite files kept as modified")
+    upd.add_argument("--force-root", action="store_true",
+                     help="forwarded: allow the updater to run as root")
+    upd.set_defaults(fn=cmd_update)
     init.set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)

@@ -91,6 +91,10 @@ function collectEntry(packageRoot, entry, isExcluded) {
   throw new Error(`payload entry is neither file nor directory: ${entry}`);
 }
 
+function destPath(projectRoot, rel) {
+  return path.join(projectRoot, KIT_DIR, ...rel.split("/"));
+}
+
 function materialize(packageRoot, projectRoot, entries, isExcluded) {
   const exclude = isExcluded || (() => false);
   const files = {};
@@ -99,7 +103,7 @@ function materialize(packageRoot, projectRoot, entries, isExcluded) {
     for (const item of collectEntry(packageRoot, entry, exclude)) {
       const buffer = fs.readFileSync(item.abs);
       files[item.rel] = sha256Hex(buffer);
-      const dest = path.join(projectRoot, KIT_DIR, ...item.rel.split("/"));
+      const dest = destPath(projectRoot, item.rel);
       let identical = false;
       try {
         identical = fs.readFileSync(dest).equals(buffer);
@@ -114,6 +118,96 @@ function materialize(packageRoot, projectRoot, entries, isExcluded) {
     }
   }
   return { files, updated };
+}
+
+function readManifest(projectRoot) {
+  const found = readJson(path.join(projectRoot, MANIFEST_PATH));
+  return found && found.schema === 1 && found.files ? found : null;
+}
+
+function compareVersions(a, b) {
+  const parse = (v) => String(v).split("-")[0].split(".").map((n) => parseInt(n, 10) || 0);
+  const left = parse(a);
+  const right = parse(b);
+  for (let i = 0; i < 3; i++) {
+    if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) - (right[i] || 0);
+  }
+  return 0;
+}
+
+// Manifest-driven update: refresh what the manifest proves untouched,
+// keep what the user edited (unless --force), prune stale kit files
+// whose recorded hash still matches. No manifest (legacy layout) →
+// adopt: only fill in missing files, never overwrite, never prune.
+function updatePayload(packageRoot, projectRoot, entries, isExcluded, options) {
+  const force = Boolean(options && options.force);
+  const prev = readManifest(projectRoot);
+  const prevFiles = prev ? prev.files : {};
+  const exclude = isExcluded || (() => false);
+  const stats = { written: 0, unchanged: 0, kept: 0, pruned: 0 };
+  const kept = [];
+  const pruned = [];
+  const files = {};
+  const seen = new Set();
+
+  for (const entry of entries) {
+    for (const item of collectEntry(packageRoot, entry, exclude)) {
+      seen.add(item.rel);
+      const buffer = fs.readFileSync(item.abs);
+      files[item.rel] = sha256Hex(buffer);
+      const dest = destPath(projectRoot, item.rel);
+      let destBuf = null;
+      try {
+        destBuf = fs.readFileSync(dest);
+      } catch (error) {
+        destBuf = null;
+      }
+      if (destBuf === null) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, buffer);
+        stats.written += 1;
+        continue;
+      }
+      if (destBuf.equals(buffer)) {
+        stats.unchanged += 1;
+        continue;
+      }
+      const destHash = sha256Hex(destBuf);
+      const destUnmodified = prevFiles[item.rel] !== undefined
+        && destHash === prevFiles[item.rel];
+      if (destUnmodified || force) {
+        fs.writeFileSync(dest, buffer);
+        stats.written += 1;
+      } else {
+        stats.kept += 1;
+        kept.push(item.rel);
+      }
+    }
+  }
+
+  for (const rel of Object.keys(prevFiles).sort()) {
+    if (seen.has(rel)) continue;
+    const dest = destPath(projectRoot, rel);
+    let destBuf = null;
+    try {
+      destBuf = fs.readFileSync(dest);
+    } catch (error) {
+      continue;
+    }
+    const destUnmodified = sha256Hex(destBuf) === prevFiles[rel];
+    if (destUnmodified || force) {
+      fs.unlinkSync(dest);
+      stats.pruned += 1;
+      pruned.push(rel);
+    } else {
+      stats.kept += 1;
+      kept.push(rel);
+    }
+  }
+
+  return {
+    stats, kept, pruned, legacy: prev === null, previous: prev, files,
+  };
 }
 
 function sortedFileMap(files) {
@@ -161,6 +255,9 @@ module.exports = {
   MANIFEST_PATH,
   materialize,
   payloadPlan,
+  readManifest,
+  compareVersions,
+  updatePayload,
   writeManifest,
   pythonVersionError,
   sha256Hex,
