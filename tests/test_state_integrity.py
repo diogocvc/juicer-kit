@@ -40,7 +40,9 @@ def load_cli(name="juicer_cli_under_test"):
 
 
 def ready_project(tmp_path):
-    assert run(tmp_path, "init").returncode == 0
+    # --no-git-guard: these fixtures git-commit on purpose; the guard has
+    # its own suite in tests/test_git_guard.py.
+    assert run(tmp_path, "init", "--no-git-guard").returncode == 0
     assert run(tmp_path, "mission", "Objective under test").returncode == 0
     assert run(tmp_path, "approve", "--by=test").returncode == 0
 

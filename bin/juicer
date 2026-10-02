@@ -40,6 +40,25 @@ KIT_VERSION = "2.4.0"
 # note in `juicer status`; state.json remains the machine truth.
 HANDOFF_MARKER_RE = re.compile(r"<!-- juicer:handoff kit=(\S+) revision=(\d+) -->")
 
+# Pre-commit guard against direct commits on main/master. Installed by
+# `juicer init` as a marked block inside the repo's own hooks directory;
+# core.hooksPath is never touched and foreign hook content is preserved.
+GUARD_BEGIN = "# >>> juicer-kit git guard >>>"
+GUARD_END = "# <<< juicer-kit git guard <<<"
+GUARD_RE = re.compile(re.escape(GUARD_BEGIN) + r".*?" + re.escape(GUARD_END), re.S)
+GIT_GUARD_BLOCK = GUARD_BEGIN + """
+# Blocks commits on main/master; installed by `juicer init`.
+# Bypass: git commit --no-verify, JUICER_NO_GIT_GUARD=1, or delete this block.
+if [ -z "${JUICER_NO_GIT_GUARD:-}" ]; then
+  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+    echo "juicer: refusing to commit directly on branch $branch." >&2
+    echo "juicer: switch to a work branch; bypass with --no-verify or JUICER_NO_GIT_GUARD=1." >&2
+    exit 1
+  fi
+fi
+""" + GUARD_END
+
 sys.path.insert(0, str(KIT / "adapters"))
 from _base import (Ctx, confine_generated, confine_manifest_entry,  # noqa: E402
                    confine_path, ownership_scope, require_owned, sha256_file)
@@ -464,6 +483,61 @@ def handoff_staleness_note(state):
         return None
     return ("handoff.md is stale (" + "; ".join(problems)
             + "); refresh with `juicer handoff`")
+
+# --- Git guard (pre-commit on main/master) ---------------------------------
+
+def _git_hooks_dir():
+    """Hooks directory for the repo at ROOT, or None outside a git work tree."""
+    try:
+        result = subprocess.run(["git", "-C", str(ROOT), "rev-parse",
+                                 "--git-path", "hooks"],
+                                capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    path = Path(result.stdout.strip())
+    return path if path.is_absolute() else ROOT / path
+
+def install_git_guard():
+    """Install or refresh the guard block in the repo's pre-commit hook.
+
+    Never sets core.hooksPath and never clobbers foreign hook content:
+    an existing hook keeps its bytes and gets the marked block appended
+    (or replaced in place on re-init). Returns "installed", "updated",
+    "unchanged", or None — no git repo, a hook that cannot be decoded, or
+    hooks living outside ROOT (e.g. a linked worktree), where the write
+    confinement policy forbids us to go.
+    """
+    hooks = _git_hooks_dir()
+    if hooks is None:
+        return None
+    hook = hooks / "pre-commit"
+    try:
+        confine_path(ROOT, hook, what="git hook")
+    except ValueError:
+        return None
+    try:
+        text = hook.read_text() if hook.is_file() else None
+    except (OSError, UnicodeDecodeError):
+        return None
+    if text is None:
+        new = GIT_GUARD_BLOCK + "\n"
+    elif GUARD_BEGIN in text:
+        new = GUARD_RE.sub(lambda _match: GIT_GUARD_BLOCK, text, count=1)
+        if new == text:
+            return "unchanged"
+    else:
+        base = text
+        if base and not base.endswith("\n"):
+            base += "\n"
+        if base and not base.endswith("\n\n"):
+            base += "\n"
+        new = base + GIT_GUARD_BLOCK + "\n"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(hook, new)
+    hook.chmod(hook.stat().st_mode | 0o111)
+    return "installed" if text is None else "updated"
 
 # --- State machine ---------------------------------------------------------
 # Every gate command validates its source state before transitioning.
@@ -957,6 +1031,11 @@ def cmd_init(args):
     for tree in [".juicer/workflows", "agents", ".agents/skills"]:
         copy_missing(KIT / tree, ROOT / tree)
     ensure_project_gitignore()
+    if not getattr(args, "no_git_guard", False):
+        guard = install_git_guard()
+        if guard in ("installed", "updated"):
+            print(f"git guard: {guard} in .git/hooks/pre-commit "
+                  "(escapes: --no-verify, JUICER_NO_GIT_GUARD=1, --no-git-guard)")
     sync("all")
     print("Juicer Kit v2.4.0 initialized.")
     if ancestor is not None:
@@ -1315,6 +1394,8 @@ def main():
     init = sub.add_parser("init", parents=[trust])
     init.add_argument("--nested", action="store_true",
                       help="create a separate workspace inside an existing Juicer project")
+    init.add_argument("--no-git-guard", action="store_true",
+                      help="do not install the main/master pre-commit guard")
     init.set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)

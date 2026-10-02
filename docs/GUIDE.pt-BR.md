@@ -343,6 +343,14 @@ pelo usuário. `juicer init --nested` cria uma raiz de workspace separada
 num subdiretório de um workspace existente; sem a flag, `init` se
 recusa.
 
+Em um repositório git, `juicer init` também instala um guard
+`pre-commit` que recusa commits diretos em `main` ou `master`. Ele
+acrescenta um bloco marcado ao `.git/hooks/pre-commit` do próprio
+repositório: o conteúdo de hooks existente é preservado e
+`core.hooksPath` nunca é definido. Escapes: `git commit --no-verify`,
+`JUICER_NO_GIT_GUARD=1` e `juicer init --no-git-guard` (pula a
+instalação).
+
 ## 13. Workflows principais
 
 ### Feature

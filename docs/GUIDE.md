@@ -336,6 +336,13 @@ drift gate), and `--force` also removes user-modified stale files.
 `juicer init --nested` creates a separate workspace root in a
 subdirectory of an existing one; without the flag, `init` refuses.
 
+In a git repository, `juicer init` also installs a `pre-commit` guard
+that refuses direct commits on `main` or `master`. It appends a marked
+block to the repository's own `.git/hooks/pre-commit`: existing hook
+content is preserved and `core.hooksPath` is never set. Escapes:
+`git commit --no-verify`, `JUICER_NO_GIT_GUARD=1`, and
+`juicer init --no-git-guard` (skip installation).
+
 ## 13. Core workflows
 
 ### Feature

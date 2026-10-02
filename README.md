@@ -108,7 +108,10 @@ subdirectory of an existing Juicer workspace unless you pass `--nested`,
 which creates a separate workspace root there on purpose. The
 `.gitignore` block it writes lists the exact paths Juicer generates, not
 whole harness directories, so your own harness configuration stays
-tracked.
+tracked. In a git repository it also installs a `pre-commit` guard
+against direct commits on `main`/`master` (escapes: `--no-verify`,
+`JUICER_NO_GIT_GUARD=1`, `juicer init --no-git-guard`); existing hook
+content is preserved and `core.hooksPath` is never set.
 
 Adapters are executable Python. By default only the adapters bundled
 with the kit are loaded; to load adapters from the project's
