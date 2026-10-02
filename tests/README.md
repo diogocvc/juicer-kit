@@ -18,6 +18,7 @@ Suites:
 - `test_cli.py` — version files and CLI surface
 - `test_docs.py` — documentation consistency (placeholders, canonical URL, versions, install claims, mirror rules, gitignore alignment)
 - `test_frontmatter.py` — skill frontmatter validity
+- `test_handoff.py` — handoff freshness marker, checkpoint log, state.json wins
 - `test_init.py` — init copies the canonical tree, idempotence, gitignore scoping
 - `test_mission_render.py` — mission and plan rendering
 - `test_path_confinement.py` — path confinement for state access
