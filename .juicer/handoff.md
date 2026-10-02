@@ -19,9 +19,11 @@ Use this file to make a fresh agent session immediately useful.
   consistency — docs/version/mirror-claim fixes, `.gitignore` ∩
   `PROJECT_MIRRORS`, 12-test `tests/test_docs.py`) and Phase 1 (handoff
   freshness marker, `## Checkpoint log`, `checkpoint --note`,
-  `juicer handoff`, advisory staleness note in `juicer status`) are
-  committed. 208 tests green on 3.12, `sync all --check` clean.
-  Commits `11c1340` `1d0bc43` `3aa46b0` `72e9e50` `f611e6d` `23efd95`.
+  `juicer handoff`, advisory staleness note in `juicer status`) and
+  Phase 2 (`juicer session` — read-only briefing from state.json) are
+  committed. 214 tests green on 3.12, `sync all --check` clean.
+  Commits `11c1340` `1d0bc43` `3aa46b0` `72e9e50` `f611e6d` `23efd95`
+  `0e04d21` `f290755` `2908c83`.
 
 ## Audit findings and where they stand
 
@@ -96,8 +98,8 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## What remains
 
-- **2.5.0 phases 2–7** (approved scope, one phase at a time with the
-  suite green each time): `juicer session`; `main`/`master` git guard;
+- **2.5.0 phases 3–7** (approved scope, one phase at a time with the
+  suite green each time): `main`/`master` git guard;
   `juicer hooks install|uninstall|status` with hook chaining and
   preservation; npm CLI `@juicer-kit/cli` (local `npm pack` only —
   **no publish** without an explicit step); `juicer install`;
@@ -184,9 +186,9 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- **2.5.0 is in flight.** Phase 0 and Phase 1 are committed; next is
-  Phase 2 (`juicer session`), then the git guard, hooks, npm CLI,
-  install/update, version consolidation and release. Decisions 1–3 of
+- **2.5.0 is in flight.** Phases 0–2 are committed; next is Phase 3
+  (`main`/`master` git guard), then hooks, npm CLI, install/update,
+  version consolidation and release. Decisions 1–3 of
   the plan (npm name/no-publish, update in 2.5.0, no `doctor`) are
   closed — do not reopen without a concrete technical blocker.
 - v2.4.0 is released: the annotated tag points at `ec174d9`; `main` and
@@ -233,3 +235,6 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
   state.json precedence, symlink refusal, pre-transition validation);
   full suite → 208 passed; dogfood `./bin/juicer handoff` stamps the
   kit's own handoff (`kit=2.4.0 revision=0`), status then silent.
+- 2.5.0 Phase 2: `tests/test_session.py` (6 tests — briefing fields,
+  read-only bytes, no mission creation, stale note without block,
+  workspace requirement); full suite → 214 passed.
