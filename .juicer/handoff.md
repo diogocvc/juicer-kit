@@ -1,3 +1,4 @@
+<!-- juicer:handoff kit=2.4.0 revision=0 -->
 # Handoff
 
 Use this file to make a fresh agent session immediately useful.
