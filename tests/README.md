@@ -20,6 +20,7 @@ Suites:
 - `test_frontmatter.py` — skill frontmatter validity
 - `test_git_guard.py` — main/master pre-commit guard, escapes, hook chaining
 - `test_handoff.py` — handoff freshness marker, checkpoint log, state.json wins
+- `test_hooks.py` — hooks install/uninstall/status lifecycle, preservation
 - `test_init.py` — init copies the canonical tree, idempotence, gitignore scoping
 - `test_mission_render.py` — mission and plan rendering
 - `test_path_confinement.py` — path confinement for state access
