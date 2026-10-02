@@ -15,6 +15,13 @@ Use this file to make a fresh agent session immediately useful.
   MEDIUM 0 — Security Baseline PASS for v2.4.0.
 - Release: **done.** The annotated tag `v2.4.0` points at `ec174d9`;
   `main` and the tag are pushed and in sync (see Next action).
+- **2.5.0 execution in flight** (plan approved): Phase 0 (repo
+  consistency — docs/version/mirror-claim fixes, `.gitignore` ∩
+  `PROJECT_MIRRORS`, 12-test `tests/test_docs.py`) and Phase 1 (handoff
+  freshness marker, `## Checkpoint log`, `checkpoint --note`,
+  `juicer handoff`, advisory staleness note in `juicer status`) are
+  committed. 208 tests green on 3.12, `sync all --check` clean.
+  Commits `11c1340` `1d0bc43` `3aa46b0` `72e9e50` `f611e6d` `23efd95`.
 
 ## Audit findings and where they stand
 
@@ -89,7 +96,16 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## What remains
 
-- Nothing in flight. The release commit is the last code/doc change.
+- **2.5.0 phases 2–7** (approved scope, one phase at a time with the
+  suite green each time): `juicer session`; `main`/`master` git guard;
+  `juicer hooks install|uninstall|status` with hook chaining and
+  preservation; npm CLI `@juicer-kit/cli` (local `npm pack` only —
+  **no publish** without an explicit step); `juicer install`;
+  `juicer update` (in 2.5.0, non-destructive, manifest/ledger based, no
+  schema migration); version consolidation to 2.5.0; release.
+- Explicitly OUT of 2.5.0 (do not build): `juicer doctor`, pre-push
+  hook, native Claude/Cursor session hooks, schema migrations,
+  automatic npm publish.
 - Requires explicit approval, do not infer: tag, push, release publish.
 
 ## Important files
@@ -112,6 +128,8 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 - `tests/test_states.py`, `tests/test_root_discovery.py`,
   `tests/test_state_integrity.py` — updated for `APPROVE_FROM`,
   nested init and the `target.parts` record shape.
+- `tests/test_docs.py` (2.5.0) — docs consistency guards; `tests/test_handoff.py`
+  (2.5.0) — handoff freshness contract; both must stay green.
 - `.juicer/decisions.md` — all phase decisions; do not re-litigate.
 - `.github/workflows/ci.yml` — pytest matrix 3.8/3.12 on ubuntu + macos,
   SHA-pinned actions, pinned deps, plus the sync idempotency job.
@@ -166,15 +184,16 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- **v2.4.0 is released.** The annotated tag `v2.4.0` points at
-  `ec174d9`; `main` and the tag are pushed and in sync. This is the same
-  process as v2.1.0, v2.2.0 and v2.3.0.
-- There is no GitHub Release step and none is pending: `GET /releases`
-  returns 0 for this repo, only `ci.yml` exists, and no doc, worker,
-  skill or workflow mentions publishing. Do not look for `gh` or a token
-  on account of a release feeling unfinished.
-- Nothing else is pending. Any new gate (see Known problems) waits for
-  its own approval.
+- **2.5.0 is in flight.** Phase 0 and Phase 1 are committed; next is
+  Phase 2 (`juicer session`), then the git guard, hooks, npm CLI,
+  install/update, version consolidation and release. Decisions 1–3 of
+  the plan (npm name/no-publish, update in 2.5.0, no `doctor`) are
+  closed — do not reopen without a concrete technical blocker.
+- v2.4.0 is released: the annotated tag points at `ec174d9`; `main` and
+  the tag are pushed and in sync, same process as v2.1.0–v2.3.0.
+- No GitHub Release step exists or is pending: `GET /releases` returns
+  0, only `ci.yml` exists, and nothing mentions publishing. Do not
+  look for `gh` or a token on account of a release feeling unfinished.
 
 ## Verification evidence
 
@@ -205,3 +224,12 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
   `must match ^[a-z][a-z0-9-]*$`, no harness file and no manifest entry
   for it; `juicer status` creates nothing; changing `access:` on a worker
   → `permission configuration changed: …` on stderr.
+- 2.5.0 Phase 0: `tests/test_docs.py` (12 tests — placeholders, canonical
+  URL, version unity, install claims, mirror-commit rules,
+  `.gitignore`/`PROJECT_MIRRORS`); full suite → 195 passed;
+  `sync all --check` clean.
+- 2.5.0 Phase 1: `tests/test_handoff.py` (13 tests — marker stamping,
+  idempotent init, advisory staleness, checkpoint log entries,
+  state.json precedence, symlink refusal, pre-transition validation);
+  full suite → 208 passed; dogfood `./bin/juicer handoff` stamps the
+  kit's own handoff (`kit=2.4.0 revision=0`), status then silent.
