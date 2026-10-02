@@ -25,6 +25,20 @@ To run `juicer` from any directory, add the kit's `bin/` directory to
 your `PATH`. The CLI imports `adapters/` relative to its own location,
 so `bin/juicer` must stay inside the kit.
 
+## With npm
+
+```bash
+npx @juicer-kit/cli install
+```
+
+The installer materializes an allowlisted kit payload under
+`.juicer-kit/` (gitignored, byte-for-byte idempotent), writes the kit
+version and per-file SHA-256 hashes to `.juicer/install.json`, then runs
+`python3 .juicer-kit/bin/juicer init`. Python 3.8 or newer is required.
+The package ships no `postinstall` scripts; the installer refuses to run
+as root unless you pass `--force-root`, and `--yes` does not bypass that
+guard.
+
 ## OpenCode
 
 ```bash
