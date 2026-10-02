@@ -450,7 +450,7 @@ No change to:
 .juicer/
 agents/
 .agents/skills/
-workflows/
+.juicer/workflows/
 ```
 
 should be required.

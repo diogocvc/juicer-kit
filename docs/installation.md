@@ -4,7 +4,13 @@ Requires Python 3.8 or newer (CI runs the test suite on 3.8 and 3.12).
 
 ## From the repository
 
-Copy Juicer Kit into your project and run:
+Clone Juicer Kit into your project:
+
+```bash
+git clone https://github.com/diogocvc/juicer-kit
+```
+
+Then run:
 
 ```bash
 ./juicer-kit/bin/juicer init
@@ -15,7 +21,9 @@ workspace; pass `--nested` to create a separate workspace root there on
 purpose. It writes a managed `.gitignore` block that lists only the
 paths Juicer generates, so harness configuration you own stays tracked.
 
-Or copy `bin/juicer` somewhere on your PATH.
+To run `juicer` from any directory, add the kit's `bin/` directory to
+your `PATH`. The CLI imports `adapters/` relative to its own location,
+so `bin/juicer` must stay inside the kit.
 
 ## OpenCode
 

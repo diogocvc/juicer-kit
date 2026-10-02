@@ -317,16 +317,18 @@ OpenCode currently supports project skills under `.opencode/skills` as well as C
 
 Juicer Kit v2 intentionally replaces the v1 architecture instead of incrementally extending it.
 
-Recommended project update:
+Recommended project update (from a checkout of the kit):
 
 ```bash
-rm -rf .juicer .agents/skills
-cp -R juicer-kit-v2/.juicer .
-cp -R juicer-kit-v2/.agents .
-./juicer-kit-v2/bin/juicer init
+./juicer-kit/bin/juicer init
+./juicer-kit/bin/juicer sync all
 ```
 
-Review the generated adapter files before committing them.
+`init` is idempotent: it fills in the files your project does not have
+yet and never overwrites your edits. `sync all` regenerates the harness
+mirrors; those mirrors are listed in `.gitignore` and must not be
+committed. To pick up kit changes in files you already have, diff them
+against the kit checkout.
 
 ## License
 
@@ -334,6 +336,8 @@ MIT.
 
 
 ## Documentation
+
+Source: https://github.com/diogocvc/juicer-kit
 
 - English: `docs/GUIDE.md`
 - Português: `docs/GUIDE.pt-BR.md`

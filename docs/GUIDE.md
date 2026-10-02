@@ -1,10 +1,10 @@
-# Juicer Kit v2.4 — Complete Guide
+# Juicer Kit v2.4.0 — Complete Guide
 
 > A harness-agnostic operating system for AI-native software development.
 
 ## 1. Introduction
 
-Juicer Kit v2.4 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
+Juicer Kit v2.4.0 is a portable workflow system for AI-native software development. It separates persistent workflow state, worker contracts, reusable skills, and harness-specific adapters.
 
 The central principle is: **the user owns the mission; agents execute work inside it.**
 
@@ -585,7 +585,7 @@ core → Cursor
 v2 replaces the previous OpenCode-centered architecture.
 
 1. Back up the project.
-2. Install v2.4.
+2. Install v2.4.0.
 3. Convert active backlog items into `.juicer/plan.md`.
 4. Move durable decisions into `.juicer/decisions.md`.
 5. Move reusable knowledge into `.juicer/learnings.md`.

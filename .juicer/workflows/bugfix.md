@@ -5,4 +5,4 @@
 3. `fixer` — make the smallest safe change.
 4. `reviewer` — inspect the diff.
 5. `tester` — reproduce before and verify after.
-6. `handoff` — record root cause and reusable learning.
+6. Record the root cause and reusable learning in `.juicer/handoff.md`.
