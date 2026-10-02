@@ -25,11 +25,16 @@ Use this file to make a fresh agent session immediately useful.
   `juicer init`, escapes `--no-verify`/`JUICER_NO_GIT_GUARD`/
   `--no-git-guard`, never `core.hooksPath`) and Phase 4
   (`juicer hooks install|uninstall|status` — block-only removal,
-  foreign hook content and mode preserved) are committed.
-  232 tests green on 3.12, `sync all --check` clean.
+  foreign hook content and mode preserved) and Phase 5 (npm package
+  `@juicer-kit/cli`: root-level `package.json` with a `files` allowlist
+  that doubles as the `.juicer-kit/` payload, `juicer-kit install`
+  materializes byte-idempotently and writes `.juicer/install.json`,
+  JS root guard runs before Python which refuses root in `cmd_init`
+  unless `--force-root`, `--yes` never bypasses) are committed.
+  243 tests green on 3.12, `sync all --check` clean.
   Commits `11c1340` `1d0bc43` `3aa46b0` `72e9e50` `f611e6d` `23efd95`
   `0e04d21` `f290755` `2908c83` `01e6983` `fdb1ef4` `7499ae6`
-  `8d83afa` `ff511df` `4d01872`.
+  `8d83afa` `ff511df` `4d01872` `e31f336` `d47c783` `d66e899`.
 
 ## Audit findings and where they stand
 
@@ -104,14 +109,12 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## What remains
 
-- **2.5.0 phases 5–7** (approved scope, one phase at a time with the
-  suite green each time): npm CLI `@juicer-kit/cli` (local `npm pack`
-  only — **no publish** without an explicit step; payload allowlist;
-  JS root guard runs before Python; kit materialized under
-  `.juicer-kit/`; `.juicer/install.json` manifest);
-  `juicer install`; `juicer update` (in 2.5.0, non-destructive,
-  manifest/ledger based, no schema migration); version consolidation to
-  2.5.0; release.
+- **2.5.0 phases 6–7** (approved scope, one phase at a time with the
+  suite green each time): `juicer update`/`juicer-kit update`
+  (non-destructive, manifest/ledger based, detects modified files,
+  preserves customizations, version consolidation to 2.5.0);
+  release (local `npm pack` validation already green — **no publish**
+  without an explicit step).
 - Explicitly OUT of 2.5.0 (do not build): `juicer doctor`, pre-push
   hook, native Claude/Cursor session hooks, schema migrations,
   automatic npm publish.
@@ -193,12 +196,12 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- **2.5.0 is in flight.** Phases 0–4 are committed; next is Phase 5
-  (npm CLI `@juicer-kit/cli`: payload allowlist, `.juicer/` layout in
-  `.juicer-kit/`, JS root guard before Python, `.juicer/install.json`),
-  then install/update, version consolidation and release.
-  Decisions 1–3 of the plan (npm name/no-publish, update in 2.5.0,
-  no `doctor`) are closed — do not reopen without a concrete blocker.
+- **2.5.0 is in flight.** Phases 0–5 are committed; next is Phase 6
+  (`juicer update` + `juicer-kit update` from `.juicer/install.json`,
+  version consolidation to 2.5.0, `npm pack` tarball validation), then
+  the release phase. Decisions 1–3 of the plan (npm name/no-publish,
+  update in 2.5.0, no `doctor`) are closed — do not reopen without a
+  concrete blocker. Tag/push/publish still need explicit approval.
 - v2.4.0 is released: the annotated tag points at `ec174d9`; `main` and
   the tag are pushed and in sync, same process as v2.1.0–v2.3.0.
 - No GitHub Release step exists or is pending: `GET /releases` returns
@@ -255,3 +258,11 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
   uninstall lifecycle, guard-only hook deleted, foreign content + mode
   preserved, no-op uninstall, idempotence, clean non-git errors); full
   suite → 232 passed.
+- 2.5.0 Phase 5: `tests/test_npm_cli.py` (11 tests — package shape and
+  negations, root-guard case tables in JS and Python, payload plan
+  exclusions, python3 >= 3.8 gate, e2e install in tmp, byte-idempotent
+  manifest, `--yes` never bypassing, root refusal before any write,
+  CLI surface); full suite → 243 passed; `npm pack --dry-run` ships 91
+  files with zero `__pycache__`/`*.pyc`/`.DS_Store`; offline smoke from
+  the real tarball: extract → `juicer-kit install` → 85 payload files,
+  `Juicer Kit v2.4.0 initialized.`, exit 0.
