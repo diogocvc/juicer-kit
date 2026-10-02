@@ -1147,7 +1147,7 @@ def cmd_init(args):
                   "(escapes: --no-verify, JUICER_NO_GIT_GUARD=1, --no-git-guard)")
     sync("all")
     print("Juicer Kit v2.4.0 initialized.")
-    if ancestor is not None:
+    if ancestor is not None and ancestor != cwd:
         print(f"note: nested workspace created inside {ancestor}; "
               "commands run here target this directory only.",
               file=sys.stderr)
