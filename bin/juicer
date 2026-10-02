@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Juicer Kit v2.4.0 CLI. Dependency-free project workflow controller."""
+"""Juicer Kit v2.5.0 CLI. Dependency-free project workflow controller."""
 
 from __future__ import annotations
 import argparse, contextlib, getpass, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, uuid
@@ -35,7 +35,7 @@ PROJECT_MIRRORS = (
 )
 GITIGNORE_MARKER = "# Juicer Kit — generated mirrors"
 
-KIT_VERSION = "2.4.0"
+KIT_VERSION = "2.5.0"
 # Freshness marker on .juicer/handoff.md: which kit stamped the narrative
 # and at which state.json revision. Stale markers only ever produce a
 # note in `juicer status`; state.json remains the machine truth.
@@ -168,7 +168,7 @@ def _read_disk_state():
 def read_state():
     disk = _read_disk_state()
     if disk is None:
-        return {"schema":1,"kit_version":"2.4.0","status":"uninitialized"}
+        return {"schema":1,"kit_version":"2.5.0","status":"uninitialized"}
     return disk
 
 def _state_revision(state):
@@ -226,7 +226,7 @@ def update_state(mutator):
     with state_lock():
         state = _read_disk_state()
         if state is None:
-            state = {"schema":1,"kit_version":"2.4.0","status":"idle","mission_id":None,
+            state = {"schema":1,"kit_version":"2.5.0","status":"idle","mission_id":None,
                      "current_unit":None,"approved":False,"ship_approved":False}
         mutator(state)
         if state.get("ship_approved"):
@@ -1146,7 +1146,7 @@ def cmd_init(args):
             print(f"git guard: {guard} in .git/hooks/pre-commit "
                   "(escapes: --no-verify, JUICER_NO_GIT_GUARD=1, --no-git-guard)")
     sync("all")
-    print("Juicer Kit v2.4.0 initialized.")
+    print("Juicer Kit v2.5.0 initialized.")
     if ancestor is not None and ancestor != cwd:
         print(f"note: nested workspace created inside {ancestor}; "
               "commands run here target this directory only.",

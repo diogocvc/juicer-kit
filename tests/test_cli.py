@@ -13,7 +13,7 @@ def run(*args):
 
 def test_version_files():
     version = (ROOT / "VERSION").read_text().strip()
-    assert version == "2.4.0"
+    assert version == "2.5.0"
     assert yaml.safe_load((ROOT / "kit.yaml").read_text())["version"] == version
     assert json.loads((ROOT / ".juicer" / "state.json").read_text())["kit_version"] == version
     assert json.loads((ROOT / "package.json").read_text())["version"] == version

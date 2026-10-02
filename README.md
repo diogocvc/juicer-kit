@@ -1,4 +1,4 @@
-# Juicer Kit v2.4.0
+# Juicer Kit v2.5.0
 
 **A harness-agnostic operating system for AI-native software development.**
 

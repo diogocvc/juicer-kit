@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.5.0 — 2026-10-02
+
+Workflow freshness, a direct-commit guard, and the npm distribution:
+
+- **Handoff freshness.** `.juicer/handoff.md` carries a
+  `<!-- juicer:handoff kit=… revision=… -->` marker; `juicer status`
+  reports a stale narrative as a note (never a block), `checkpoint
+  --note` appends to the `## Checkpoint log`, `juicer handoff`
+  restamps the marker.
+- **`juicer session`.** Read-only briefing from `state.json` for a
+  fresh session — creates nothing, never blocks on staleness.
+- **Default-on `main`/`master` pre-commit guard.** `juicer init`
+  installs a marked block in the repository's own `pre-commit` hook
+  (`core.hooksPath` is never touched). Escapes: `git commit
+  --no-verify`, `JUICER_NO_GIT_GUARD=1`, `juicer init --no-git-guard`;
+  `juicer hooks install|uninstall|status` manages the block while
+  preserving foreign hook content and mode.
+- **npm package `@juicer-kit/cli`** (publish stays a manual, explicitly
+  approved step): `npx @juicer-kit/cli install` materializes an
+  allowlisted payload under `.juicer-kit/` (byte-idempotent) and
+  records `.juicer/install.json` (schema, kit version, `installed_at`,
+  per-file SHA-256), then runs `python3 .juicer-kit/bin/juicer init`
+  (Python >= 3.8). No `postinstall` scripts; root is refused in both
+  the JS and Python entry points without `--force-root`, and `--yes`
+  never bypasses that guard.
+- **Manifest-driven update.** `npx @juicer-kit/cli update` refreshes
+  what the manifest proves untouched, keeps edited files and reports
+  them (`--force` overwrites), prunes stale kit files only while their
+  recorded hash matches, warns on version downgrade and adopts legacy
+  no-manifest layouts conservatively (no overwrite, no prune).
+  `juicer update` delegates to the same updater via `npx`.
+  There is no state-schema migration: `.juicer/` state files keep
+  their shape across kit updates (documented limitation).
+
 ## 2.4.0 — 2026-09-30
 
 Security baseline / release candidate. Post-release audit of the kit,
