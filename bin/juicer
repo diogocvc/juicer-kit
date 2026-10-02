@@ -34,6 +34,12 @@ PROJECT_MIRRORS = (
 )
 GITIGNORE_MARKER = "# Juicer Kit — generated mirrors"
 
+KIT_VERSION = "2.4.0"
+# Freshness marker on .juicer/handoff.md: which kit stamped the narrative
+# and at which state.json revision. Stale markers only ever produce a
+# note in `juicer status`; state.json remains the machine truth.
+HANDOFF_MARKER_RE = re.compile(r"<!-- juicer:handoff kit=(\S+) revision=(\d+) -->")
+
 sys.path.insert(0, str(KIT / "adapters"))
 from _base import (Ctx, confine_generated, confine_manifest_entry,  # noqa: E402
                    confine_path, ownership_scope, require_owned, sha256_file)
@@ -399,6 +405,65 @@ def copy_missing(src, dst):
         confine_write(dst, what="init destination")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+
+# --- Handoff freshness marker ----------------------------------------------
+
+def parse_handoff_marker(text):
+    """(kit, revision) from the marker, or None when the file predates it."""
+    match = HANDOFF_MARKER_RE.search(text)
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+def set_handoff_marker(text, kit, revision):
+    """Return text with the marker set to kit/revision (added at the top if absent)."""
+    line = f"<!-- juicer:handoff kit={kit} revision={revision} -->"
+    if HANDOFF_MARKER_RE.search(text):
+        return HANDOFF_MARKER_RE.sub(lambda _match: line, text, count=1)
+    return line + "\n" + text.lstrip("\n")
+
+def insert_checkpoint_entry(text, entry):
+    """Append entry under ## Checkpoint log, creating the section when absent."""
+    heading = "## Checkpoint log"
+    if heading not in text:
+        return text.rstrip("\n") + "\n\n" + heading + "\n\n" + entry + "\n"
+    start = text.index(heading) + len(heading)
+    following = re.search(r"\n## ", text[start:])
+    end = start + following.start() if following else len(text)
+    head, tail = text[:end], text[end:]
+    if not head.endswith("\n\n"):
+        head += "\n" if head.endswith("\n") else "\n\n"
+    return head + entry + "\n" + tail
+
+def append_checkpoint_note(status, revision, note):
+    text = _trusted_text(HANDOFF, "handoff file")
+    entry = f"- {now()} — **{status}** (rev {revision}) {note}"
+    text = set_handoff_marker(insert_checkpoint_entry(text, entry),
+                              KIT_VERSION, revision)
+    _atomic_write_text(HANDOFF, text)
+
+def handoff_staleness_note(state):
+    """A `juicer status` note when handoff.md lags state.json, else None.
+
+    Advisory only: a stale, missing or unmarked handoff never blocks a
+    command and never changes state — state.json always wins.
+    """
+    if not HANDOFF.exists():
+        return "missing .juicer/handoff.md (run `juicer init`)"
+    marker = parse_handoff_marker(_trusted_text(HANDOFF, "handoff file"))
+    if marker is None:
+        return "handoff.md has no freshness marker (created before this format); run `juicer handoff` to stamp it"
+    kit, revision = marker
+    problems = []
+    current = _state_revision(state)
+    if revision != current:
+        problems.append(f"marker revision {revision}, state revision {current}")
+    if kit != KIT_VERSION:
+        problems.append(f"marker kit {kit}, current kit {KIT_VERSION}")
+    if not problems:
+        return None
+    return ("handoff.md is stale (" + "; ".join(problems)
+            + "); refresh with `juicer handoff`")
 
 # --- State machine ---------------------------------------------------------
 # Every gate command validates its source state before transitioning.
@@ -880,6 +945,15 @@ def cmd_init(args):
     for name in ("handoff", "decisions", "learnings"):
         copy_missing(KIT / ".juicer" / "templates" / f"{name}.md",
                      ROOT / ".juicer" / f"{name}.md")
+    if HANDOFF.exists():
+        # Stamp the freshness marker on both new and pre-marker handoffs
+        # so `juicer status` starts without a stale note. Byte-stable:
+        # an already-current marker triggers no write.
+        current = _trusted_text(HANDOFF, "handoff file")
+        stamped = set_handoff_marker(current, KIT_VERSION,
+                                     _state_revision(read_state()))
+        if stamped != current:
+            _atomic_write_text(HANDOFF, stamped)
     for tree in [".juicer/workflows", "agents", ".agents/skills"]:
         copy_missing(KIT / tree, ROOT / tree)
     ensure_project_gitignore()
@@ -916,6 +990,9 @@ def cmd_status(_):
     print(json.dumps(s, indent=2))
     for note in notes:
         print(f"note: {note}", file=sys.stderr)
+    handoff_note = handoff_staleness_note(s)
+    if handoff_note:
+        print(f"note: {handoff_note}", file=sys.stderr)
     _approval_summary(s, _approval_valid(s), "plan approval", "approval")
     _approval_summary(s, _ship_approval_valid(s), "ship approval", "ship_approval")
     commands = available_commands(s.get("status", "idle"))
@@ -995,14 +1072,40 @@ def cmd_checkpoint(args):
     state = read_state()
     require_state(f"checkpoint {args.status}", state.get("status"),
                   CHECKPOINT_RULES[args.status])
+    note = " ".join(args.note.split()) if args.note else None
+    if note:
+        # Validate before the state transition: a rejected note must not
+        # leave a checkpoint applied with its narrative record missing.
+        if not HANDOFF.exists():
+            fail(f"missing {HANDOFF}; run `juicer init` first "
+                 "(--note logs to the handoff checkpoint log)")
+        confine_write(HANDOFF, what="handoff file")
     def mut(s):
         require_state(f"checkpoint {args.status}", s.get("status"),
                       CHECKPOINT_RULES[args.status])
         s["status"] = args.status
         if args.status in ("ready", "done"):
             s["current_unit"] = None
-    update_state(mut)
+    written = update_state(mut)
     print(f"Checkpoint saved: {args.status}")
+    if note:
+        revision = _state_revision(written)
+        append_checkpoint_note(args.status, revision, note)
+        print(f"Note logged in .juicer/handoff.md (rev {revision})")
+
+def cmd_handoff(_args):
+    """Stamp handoff.md fresh against the current state.json revision."""
+    if not HANDOFF.exists():
+        fail(f"missing {HANDOFF}; run `juicer init` first")
+    revision = _state_revision(read_state())
+    current = _trusted_text(HANDOFF, "handoff file")
+    stamped = set_handoff_marker(current, KIT_VERSION, revision)
+    if stamped == current:
+        print(f"Handoff already fresh: kit={KIT_VERSION} revision={revision}")
+    else:
+        _atomic_write_text(HANDOFF, stamped)
+        print(f"Handoff stamped: kit={KIT_VERSION} revision={revision}")
+    print(HANDOFF)
 
 def ship_code_binding(root):
     """How tightly ship-approve is bound to the code it approves.
@@ -1120,7 +1223,8 @@ def cmd_finish(_):
 # in this directory or above). Read-only commands fall back to the cwd.
 
 WORKSPACE_REQUIRED = {"status", "mission", "approve", "ship-approve", "start",
-                      "checkpoint", "finish", "sync", "install", "invoke"}
+                      "checkpoint", "finish", "sync", "install", "invoke",
+                      "handoff"}
 
 def find_project_root(start=None):
     current = Path(start or Path.cwd()).resolve()
@@ -1157,7 +1261,8 @@ def main():
     trust.add_argument("--trust-project-adapters", action="store_true",
                        help="import adapter.py from the project's adapters/ directory (untrusted by default)")
     by_help = "record this approval under an automation identity (required without a TTY)"
-    for name, fn in [("status",cmd_status),("finish",cmd_finish)]:
+    for name, fn in [("status",cmd_status),("finish",cmd_finish),
+                     ("handoff",cmd_handoff)]:
         sub.add_parser(name).set_defaults(fn=fn)
     ap = sub.add_parser("approve")
     ap.add_argument("--by", default=None, metavar="ID", help=by_help)
@@ -1171,7 +1276,10 @@ def main():
     init.set_defaults(fn=cmd_init)
     m = sub.add_parser("mission"); m.add_argument("objective"); m.set_defaults(fn=cmd_mission)
     st = sub.add_parser("start"); st.add_argument("unit"); st.set_defaults(fn=cmd_start)
-    cp = sub.add_parser("checkpoint"); cp.add_argument("status", choices=["executing","blocked","ready","done"]); cp.set_defaults(fn=cmd_checkpoint)
+    cp = sub.add_parser("checkpoint"); cp.add_argument("status", choices=["executing","blocked","ready","done"])
+    cp.add_argument("--note", default=None, metavar="TEXT",
+                    help="append this note to the handoff checkpoint log and stamp handoff freshness")
+    cp.set_defaults(fn=cmd_checkpoint)
     wk = sub.add_parser("worker"); wk.add_argument("worker"); wk.set_defaults(fn=cmd_worker)
     sy = sub.add_parser("sync", parents=[trust])
     sy.add_argument("target")

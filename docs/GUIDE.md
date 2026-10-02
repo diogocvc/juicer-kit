@@ -304,6 +304,8 @@ rewriting changes — review that diff before shipping.
 ./bin/juicer checkpoint blocked
 ./bin/juicer checkpoint ready
 ./bin/juicer checkpoint done
+./bin/juicer checkpoint ready --note "why this checkpoint happened"
+./bin/juicer handoff
 ./bin/juicer ship-approve
 ./bin/juicer finish
 ./bin/juicer adapters
@@ -319,6 +321,12 @@ The CLI does not call an LLM. It manages deterministic state while the active ha
 `juicer status` is read-only: it never creates `.juicer/mission.md` or
 rewrites `state.json`, and it prints the plan and ship approval verdicts
 (with any invalidation reason) on stderr while stdout stays JSON.
+
+The freshness marker on `.juicer/handoff.md` is stamped by `juicer init`
+and `juicer handoff`; `juicer checkpoint --note` appends an entry to its
+Checkpoint log and refreshes the marker. When the marker lags
+`state.json`, `juicer status` prints a note — advisory only. The
+narrative never overrides machine state: `state.json` always wins.
 
 `juicer sync <adapter>|all` regenerates the harness mirrors
 idempotently. `--dry-run` prints the plan and changes nothing,

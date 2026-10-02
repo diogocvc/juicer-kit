@@ -308,6 +308,8 @@ diff antes de publicar.
 ./bin/juicer checkpoint blocked
 ./bin/juicer checkpoint ready
 ./bin/juicer checkpoint done
+./bin/juicer checkpoint ready --note "registre por que este checkpoint aconteceu"
+./bin/juicer handoff
 ./bin/juicer ship-approve
 ./bin/juicer finish
 ./bin/juicer adapters
@@ -324,6 +326,13 @@ O CLI não chama um LLM. Ele gerencia estado de forma determinística enquanto o
 nem reescreve `state.json`, e imprime os vereditos de aprovação de plano
 e de ship (com o motivo de qualquer invalidação) no stderr enquanto o
 stdout permanece JSON.
+
+O marcador de frescor em `.juicer/handoff.md` é carimbado por
+`juicer init` e `juicer handoff`; `juicer checkpoint --note` acrescenta
+uma entrada no Checkpoint log e atualiza o marcador. Quando o marcador
+fica atrás de `state.json`, `juicer status` imprime uma nota — apenas
+informativa. A narrativa nunca sobrepõe o estado de máquina:
+`state.json` sempre prevalece.
 
 `juicer sync <adapter>|all` regenera os espelhos do harness de forma
 idempotente. `--dry-run` imprime o plano e não muda nada, `--check`

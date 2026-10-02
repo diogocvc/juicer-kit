@@ -169,11 +169,16 @@ def test_blocked_gate_exits_nonzero_on_stderr(tmp_path):
 def test_init_copies_pristine_history_templates(tmp_path):
     """BUG-06: kit development history never ships into a new project."""
     assert run(tmp_path, "init").returncode == 0
+    mark = re.compile(r"<!-- juicer:handoff kit=\S+ revision=\d+ -->")
+    def normalized(text):
+        # The only legitimate template/copy difference is the stamped
+        # handoff freshness marker.
+        return mark.sub("<!-- juicer:handoff -->", text)
     for name in ("handoff", "decisions", "learnings"):
         project = tmp_path / ".juicer" / f"{name}.md"
         template = KIT / ".juicer" / "templates" / f"{name}.md"
         assert project.exists(), name
-        assert project.read_bytes() == template.read_bytes(), name
+        assert normalized(project.read_text()) == normalized(template.read_text()), name
         text = project.read_text()
         assert not re.search(r"(?m)^## \d{4}-\d{2}-\d{2}", text), name
         assert not re.search(r"(?m)^### \d{4}-\d{2}-\d{2}", text), name
