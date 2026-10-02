@@ -267,3 +267,195 @@ def test_cli_surface(tmp_path):
     unknown_r = node_run(tmp_path, "bogus")
     assert unknown_r.returncode == 1
     assert "unknown command bogus" in unknown_r.stderr
+
+
+# --- update -----------------------------------------------------------------
+
+def run_update(cwd, *extra):
+    args = ["update", *extra]
+    if is_root and "--force-root" not in args:
+        args.append("--force-root")
+    return node_run(cwd, *args)
+
+
+def read_manifest(project):
+    return json.loads((project / ".juicer" / "install.json").read_text())
+
+
+def write_manifest(project, data):
+    (project / ".juicer" / "install.json").write_text(
+        json.dumps(data, indent=2) + "\n")
+
+
+@requires_toolchain
+def test_update_preserves_edits_restores_and_prunes(tmp_path):
+    assert run_install(tmp_path).returncode == 0
+    version_file = tmp_path / ".juicer-kit" / "VERSION"
+    version_file.write_text(version_file.read_text() + "user edit\n")
+    (tmp_path / ".juicer-kit" / "kit.yaml").unlink()
+    stale = tmp_path / ".juicer-kit" / "STALE_PROBE.txt"
+    stale.write_text("stale\n")
+    manifest = read_manifest(tmp_path)
+    manifest["files"]["STALE_PROBE.txt"] = hashlib.sha256(
+        b"stale\n").hexdigest()
+    write_manifest(tmp_path, manifest)
+
+    r = run_update(tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "1 modified kept" in r.stdout
+    assert "kept (modified): VERSION" in r.stderr
+    assert "1 stale pruned" in r.stdout
+    assert "pruned: STALE_PROBE.txt" in r.stdout
+    assert "user edit" in version_file.read_text()
+    assert (tmp_path / ".juicer-kit" / "kit.yaml").is_file()
+    assert not stale.exists()
+    after = read_manifest(tmp_path)
+    assert "STALE_PROBE.txt" not in after["files"]
+    assert after["kit_version"] == VERSION
+
+
+@requires_toolchain
+def test_update_force_overwrites_kept_files(tmp_path):
+    assert run_install(tmp_path).returncode == 0
+    version_file = tmp_path / ".juicer-kit" / "VERSION"
+    version_file.write_text("tampered\n")
+    r = run_update(tmp_path, "--force")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "0 modified kept" in r.stdout
+    assert version_file.read_text() == (KIT / "VERSION").read_text()
+
+
+@requires_toolchain
+def test_update_adopts_legacy_layout_without_manifest(tmp_path):
+    assert run_install(tmp_path).returncode == 0
+    (tmp_path / ".juicer" / "install.json").unlink()
+    kit_yaml = tmp_path / ".juicer-kit" / "kit.yaml"
+    kit_yaml.write_text("user: custom\n")
+    stray = tmp_path / ".juicer-kit" / "UNTRACKED.txt"
+    stray.write_text("keep me\n")
+
+    r = run_update(tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "legacy layout" in r.stdout
+    assert "kept (modified): kit.yaml" in r.stderr
+    assert kit_yaml.read_text() == "user: custom\n"
+    assert stray.exists()
+    after = read_manifest(tmp_path)
+    assert after["kit_version"] == VERSION
+    assert "kit.yaml" in after["files"]
+
+
+@requires_toolchain
+def test_update_warns_on_downgrade(tmp_path):
+    assert run_install(tmp_path).returncode == 0
+    manifest = read_manifest(tmp_path)
+    manifest["kit_version"] = "99.0.0"
+    manifest["installed_at"] = "1999-12-31T00:00:00.000Z"
+    write_manifest(tmp_path, manifest)
+
+    r = run_update(tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"downgrade 99.0.0 -> {VERSION}" in r.stderr
+    after = read_manifest(tmp_path)
+    assert after["kit_version"] == VERSION
+    assert after["installed_at"] != "1999-12-31T00:00:00.000Z"
+
+
+@requires_toolchain
+def test_update_is_idempotent(tmp_path):
+    assert run_install(tmp_path).returncode == 0
+    first = run_update(tmp_path)
+    assert first.returncode == 0, first.stdout + first.stderr
+    manifest_bytes = (tmp_path / ".juicer" / "install.json").read_bytes()
+    second = run_update(tmp_path)
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "0 written" in second.stdout
+    assert "0 modified kept" in second.stdout
+    assert "0 stale pruned" in second.stdout
+    assert "install manifest: unchanged" in second.stdout
+    assert (tmp_path / ".juicer" / "install.json").read_bytes() == manifest_bytes
+
+
+@pytest.mark.skipif(not is_root, reason="root refusal needs uid 0")
+@requires_toolchain
+def test_update_refuses_root_before_any_write(tmp_path):
+    r = node_run(tmp_path, "update")
+    assert r.returncode == 1
+    assert "refusing to run as root" in r.stderr
+    assert not (tmp_path / ".juicer-kit").exists()
+
+
+def test_juicer_update_requires_install_manifest(tmp_path):
+    r = subprocess.run([str(CLI), "init", "--no-git-guard"],
+                       cwd=str(tmp_path), capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    r = subprocess.run([str(CLI), "update"], cwd=str(tmp_path),
+                       capture_output=True, text=True)
+    assert r.returncode == 1
+    assert "missing .juicer/install.json" in r.stderr
+    assert "npx @juicer-kit/cli install" in r.stderr
+
+
+def test_juicer_update_without_npx_explains(tmp_path):
+    r = subprocess.run([str(CLI), "init", "--no-git-guard"],
+                       cwd=str(tmp_path), capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    (tmp_path / ".juicer" / "install.json").write_text('{"schema": 1}\n')
+    bindir = tmp_path / "binonly"
+    bindir.mkdir()
+    os.symlink(shutil.which("python3"), bindir / "python3")
+    env = dict(os.environ, PATH=str(bindir))
+    r = subprocess.run([str(CLI), "update"], cwd=str(tmp_path),
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 1
+    assert "npx not found" in r.stderr
+    assert "npx --yes @juicer-kit/cli update" in r.stderr
+
+
+def test_juicer_update_delegates_to_npx(tmp_path):
+    r = subprocess.run([str(CLI), "init", "--no-git-guard"],
+                       cwd=str(tmp_path), capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    (tmp_path / ".juicer" / "install.json").write_text('{"schema": 1}\n')
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    log = tmp_path / "shim.log"
+    npx = shim / "npx"
+    npx.write_text(f'#!/bin/sh\necho "$@" > "{log}"\nexit 7\n')
+    npx.chmod(0o755)
+    env = dict(os.environ, PATH=f"{shim}{os.pathsep}{os.environ['PATH']}")
+
+    r = subprocess.run([str(CLI), "update"], cwd=str(tmp_path),
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 7
+    assert "updating via npm: npx --yes @juicer-kit/cli update" in r.stdout
+    assert log.read_text().strip() == "--yes @juicer-kit/cli update"
+
+    r = subprocess.run([str(CLI), "update", "--force"], cwd=str(tmp_path),
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 7
+    assert log.read_text().strip() == "--yes @juicer-kit/cli update --force"
+
+
+@pytest.mark.skipif(shutil.which("npm") is None, reason="npm not available")
+def test_npm_pack_ships_payload_without_junk():
+    r = subprocess.run(["npm", "pack", "--dry-run", "--json"],
+                       cwd=str(KIT), capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    entries = json.loads(r.stdout)
+    paths = {entry["path"] for entry in entries[0]["files"]}
+    required = {
+        "package.json", "bin/juicer", "AGENTS.md", "VERSION", "kit.yaml",
+        "adapters/_base.py", "agents/finder.md",
+        ".agents/skills/ship/SKILL.md",
+        ".juicer/templates/mission.md", ".juicer/workflows/release.md",
+        "npm/bin/juicer-kit.js", "npm/lib/install.js",
+        "npm/lib/root-guard.js",
+    }
+    assert required <= paths, required - paths
+    junk = [p for p in paths
+            if "__pycache__" in p or p.endswith(".pyc")
+            or p.endswith(".DS_Store")]
+    assert not junk, junk
+    assert not any(p.startswith(("tests/", "docs/", ".github/"))
+                   for p in paths)

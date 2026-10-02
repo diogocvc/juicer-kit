@@ -108,6 +108,7 @@ def test_installation_doc_install_claims():
     assert CANONICAL_URL in text
     assert "./juicer-kit/bin/juicer init" in text
     assert "npx @juicer-kit/cli install" in text
+    assert "npx @juicer-kit/cli update" in text
     assert "--force-root" in text
 
 
