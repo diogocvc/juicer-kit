@@ -25,6 +25,7 @@ Suites:
 - `test_registry.py` — worker registry
 - `test_root_discovery.py` — workspace root discovery
 - `test_security_baseline.py` — security baseline invariants
+- `test_session.py` — read-only session briefing from state.json
 - `test_state_integrity.py` — atomic writes, revision fencing, approval provenance
 - `test_states.py` — workflow and state documents (including release INVARIANT lines)
 - `test_symlink_escape.py` — symlink escape protection
