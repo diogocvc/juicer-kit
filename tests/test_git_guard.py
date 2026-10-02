@@ -33,8 +33,8 @@ def run(cwd, *args, env=None):
                           env={**os.environ, **(env or {})})
 
 
-def guarded_project(root, *init_args):
-    assert git(root, "init", "-b", "main").returncode == 0
+def guarded_project(root, *init_args, branch="main"):
+    assert git(root, "init", "-b", branch).returncode == 0
     assert git(root, "config", "user.email", "t@example.com").returncode == 0
     assert git(root, "config", "user.name", "Test").returncode == 0
     r = run(root, "init", *init_args)
@@ -140,8 +140,7 @@ def test_reinit_refreshes_a_stale_guard_block(tmp_path):
 
 
 def test_guard_blocks_master_branch_too(tmp_path):
-    assert git(tmp_path, "init", "-b", "master").returncode == 0
-    assert run(tmp_path, "init").returncode == 0
+    guarded_project(tmp_path, branch="master")
     (tmp_path / "file.txt").write_text("x\n")
     git(tmp_path, "add", "-A")
     r = git(tmp_path, "commit", "-m", "change")
