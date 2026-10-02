@@ -39,6 +39,22 @@ The package ships no `postinstall` scripts; the installer refuses to run
 as root unless you pass `--force-root`, and `--yes` does not bypass that
 guard.
 
+To move an installed project to a newer kit:
+
+```bash
+npx @juicer-kit/cli update
+```
+
+Update is manifest-driven: files the manifest proves untouched are
+refreshed, files you edited are kept and reported on stderr (`--force`
+overwrites them), stale kit files are pruned only while their recorded
+hash still matches, and a version downgrade is warned about. A project
+without a manifest is adopted conservatively — nothing is overwritten or
+pruned. From inside the project, `juicer update` delegates to the same
+updater through `npx`. There is no state-schema migration: `.juicer/`
+state files keep their current shape across kit updates (documented
+limitation).
+
 ## OpenCode
 
 ```bash
