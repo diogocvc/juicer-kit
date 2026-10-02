@@ -23,6 +23,7 @@ Suites:
 - `test_hooks.py` — hooks install/uninstall/status lifecycle, preservation
 - `test_init.py` — init copies the canonical tree, idempotence, gitignore scoping
 - `test_mission_render.py` — mission and plan rendering
+- `test_npm_cli.py` — npm package install: payload allowlist, root guard case table, manifest idempotence
 - `test_path_confinement.py` — path confinement for state access
 - `test_registry.py` — worker registry
 - `test_root_discovery.py` — workspace root discovery
