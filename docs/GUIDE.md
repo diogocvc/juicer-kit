@@ -297,6 +297,7 @@ rewriting changes — review that diff before shipping.
 ```bash
 ./bin/juicer init
 ./bin/juicer status
+./bin/juicer session
 ./bin/juicer mission "Build feature X"
 ./bin/juicer approve
 ./bin/juicer start UNIT-001

@@ -1002,6 +1002,48 @@ def cmd_status(_):
         print("\n--- mission ---")
         print(_trusted_text(MISSION, "mission file")[:3000])
 
+def _mission_objective():
+    """First line of the mission's Objective section, or None."""
+    if not MISSION.exists():
+        return None
+    _head, sep, rest = _trusted_text(MISSION, "mission file").partition("## Objective")
+    if not sep:
+        return None
+    for line in rest.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("##"):
+            break
+        return line
+    return None
+
+def cmd_session(_args):
+    """Read-only briefing for a fresh session; state.json is the only truth.
+
+    Creates nothing (no state, no mission) and never blocks on a stale
+    handoff — staleness is reported as a note, same as `juicer status`.
+    """
+    if not STATE.exists():
+        fail(f"missing state file {STATE}; run `juicer init` first")
+    s, notes = _effective_state(read_state())
+    print(f"Juicer Kit v{KIT_VERSION} — session briefing")
+    print(f"workspace: {ROOT}")
+    unit = s.get("current_unit")
+    print(f"status: {s.get('status')}" + (f" | unit: {unit}" if unit else ""))
+    objective = _mission_objective()
+    print(f"objective: {objective if objective is not None else 'none'}")
+    print(f"handoff: {HANDOFF}" if HANDOFF.exists() else "handoff: missing")
+    for note in notes:
+        print(f"note: {note}", file=sys.stderr)
+    stale = handoff_staleness_note(s)
+    if stale:
+        print(f"note: {stale}", file=sys.stderr)
+    commands = available_commands(s.get("status", "idle"))
+    if commands:
+        print("available: " + ", ".join(commands))
+    print("read .juicer/mission.md, .juicer/plan.md and .juicer/handoff.md before acting")
+
 def cmd_mission(args):
     ensure_runtime()
     state = read_state()
@@ -1222,9 +1264,9 @@ def cmd_finish(_):
 # Gate/state commands require an initialized workspace (.juicer/state.json
 # in this directory or above). Read-only commands fall back to the cwd.
 
-WORKSPACE_REQUIRED = {"status", "mission", "approve", "ship-approve", "start",
-                      "checkpoint", "finish", "sync", "install", "invoke",
-                      "handoff"}
+WORKSPACE_REQUIRED = {"status", "session", "mission", "approve", "ship-approve",
+                      "start", "checkpoint", "finish", "sync", "install",
+                      "invoke", "handoff"}
 
 def find_project_root(start=None):
     current = Path(start or Path.cwd()).resolve()
@@ -1262,7 +1304,7 @@ def main():
                        help="import adapter.py from the project's adapters/ directory (untrusted by default)")
     by_help = "record this approval under an automation identity (required without a TTY)"
     for name, fn in [("status",cmd_status),("finish",cmd_finish),
-                     ("handoff",cmd_handoff)]:
+                     ("handoff",cmd_handoff),("session",cmd_session)]:
         sub.add_parser(name).set_defaults(fn=fn)
     ap = sub.add_parser("approve")
     ap.add_argument("--by", default=None, metavar="ID", help=by_help)
