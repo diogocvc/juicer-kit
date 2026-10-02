@@ -319,6 +319,9 @@ diff antes de publicar.
 ./bin/juicer sync codex
 ./bin/juicer install codex
 ./bin/juicer invoke codex reviewer --unit UNIT-001
+./bin/juicer hooks status
+./bin/juicer hooks install
+./bin/juicer hooks uninstall
 ```
 
 O CLI não chama um LLM. Ele gerencia estado de forma determinística enquanto o harness ativo executa o trabalho de IA. Os comandos de gate validam o estado do workflow primeiro e saem com código 1 em uma transição ilegal; `juicer status` lista os comandos disponíveis no estado atual.
@@ -349,7 +352,10 @@ acrescenta um bloco marcado ao `.git/hooks/pre-commit` do próprio
 repositório: o conteúdo de hooks existente é preservado e
 `core.hooksPath` nunca é definido. Escapes: `git commit --no-verify`,
 `JUICER_NO_GIT_GUARD=1` e `juicer init --no-git-guard` (pula a
-instalação).
+instalação). Gerencie-o com `juicer hooks install`,
+`juicer hooks uninstall` (remove apenas o bloco do Juicer — o conteúdo
+de hooks estrangeiros e o bit executável são preservados) e
+`juicer hooks status`.
 
 ## 13. Workflows principais
 

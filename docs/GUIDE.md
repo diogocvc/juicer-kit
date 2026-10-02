@@ -315,6 +315,9 @@ rewriting changes — review that diff before shipping.
 ./bin/juicer sync codex
 ./bin/juicer install codex
 ./bin/juicer invoke codex reviewer --unit UNIT-001
+./bin/juicer hooks status
+./bin/juicer hooks install
+./bin/juicer hooks uninstall
 ```
 
 The CLI does not call an LLM. It manages deterministic state while the active harness executes AI work. Gate commands validate the workflow state first and exit 1 on an illegal transition; `juicer status` lists the commands available in the current state.
@@ -341,7 +344,10 @@ that refuses direct commits on `main` or `master`. It appends a marked
 block to the repository's own `.git/hooks/pre-commit`: existing hook
 content is preserved and `core.hooksPath` is never set. Escapes:
 `git commit --no-verify`, `JUICER_NO_GIT_GUARD=1`, and
-`juicer init --no-git-guard` (skip installation).
+`juicer init --no-git-guard` (skip installation). Manage it with
+`juicer hooks install`, `juicer hooks uninstall` (removes only Juicer's
+block — foreign hook content and its executable bit are preserved) and
+`juicer hooks status`.
 
 ## 13. Core workflows
 

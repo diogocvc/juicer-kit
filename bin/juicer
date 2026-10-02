@@ -48,7 +48,8 @@ GUARD_END = "# <<< juicer-kit git guard <<<"
 GUARD_RE = re.compile(re.escape(GUARD_BEGIN) + r".*?" + re.escape(GUARD_END), re.S)
 GIT_GUARD_BLOCK = GUARD_BEGIN + """
 # Blocks commits on main/master; installed by `juicer init`.
-# Bypass: git commit --no-verify, JUICER_NO_GIT_GUARD=1, or delete this block.
+# Bypass: git commit --no-verify, JUICER_NO_GIT_GUARD=1,
+# or remove it with: juicer hooks uninstall
 if [ -z "${JUICER_NO_GIT_GUARD:-}" ]; then
   branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
@@ -538,6 +539,95 @@ def install_git_guard():
     _atomic_write_text(hook, new)
     hook.chmod(hook.stat().st_mode | 0o111)
     return "installed" if text is None else "updated"
+
+def uninstall_git_guard():
+    """Remove only the marked guard block; foreign hook bytes survive.
+
+    Returns "removed" (whole hook deleted — it was ours alone),
+    "cleaned" (foreign content written back, executable bit preserved),
+    "absent" (no guard, or no pre-commit hook at all), or None (no git
+    repo / hooks outside ROOT / undecodable file — nothing touched).
+    """
+    hooks = _git_hooks_dir()
+    if hooks is None:
+        return None
+    hook = hooks / "pre-commit"
+    try:
+        confine_path(ROOT, hook, what="git hook")
+    except ValueError:
+        return None
+    if not hook.is_file():
+        return "absent"
+    try:
+        text = hook.read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if GUARD_BEGIN not in text:
+        return "absent"
+    mode = hook.stat().st_mode
+    new = GUARD_RE.sub("", text, count=1)
+    if not new.strip():
+        hook.unlink()
+        return "removed"
+    _atomic_write_text(hook, new)
+    hook.chmod(mode)
+    return "cleaned"
+
+def git_guard_report():
+    """(scope, installed, hook_path) for `juicer hooks status`."""
+    hooks = _git_hooks_dir()
+    if hooks is None:
+        return "not a git repository", False, None
+    hook = hooks / "pre-commit"
+    installed = False
+    if hook.is_file():
+        try:
+            installed = GUARD_BEGIN in hook.read_text()
+        except (OSError, UnicodeDecodeError):
+            installed = False
+    return None, installed, hook
+
+def cmd_hooks(args):
+    if args.action == "install":
+        status = install_git_guard()
+        if status is None:
+            fail("could not install the git guard (not a git work tree, "
+                 "hooks outside the project, or an unreadable pre-commit)")
+        where = _git_hooks_dir() / "pre-commit"
+        print(f"git guard: {status} ({where})")
+        return
+    if args.action == "uninstall":
+        status = uninstall_git_guard()
+        if status is None:
+            fail("could not reach the git guard (not a git work tree, "
+                 "hooks outside the project, or an unreadable pre-commit)")
+        if status == "absent":
+            print("git guard: not installed; nothing removed")
+        elif status == "removed":
+            print("git guard: removed (pre-commit hook had only the guard)")
+        else:
+            print("git guard: removed (existing hook content preserved)")
+        return
+    scope, installed, hook = git_guard_report()
+    if scope:
+        print(f"git guard: {scope}")
+    elif installed:
+        print(f"git guard: installed ({hook})")
+    else:
+        print("git guard: not installed")
+    hooks_path = git_config_value("core.hooksPath")
+    print(f"core.hooksPath: {hooks_path if hooks_path is not None else 'unset'}"
+          " (juicer never sets it)")
+
+def git_config_value(key):
+    try:
+        result = subprocess.run(["git", "-C", str(ROOT), "config", "--get", key],
+                                capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
 
 # --- State machine ---------------------------------------------------------
 # Every gate command validates its source state before transitioning.
@@ -1345,7 +1435,7 @@ def cmd_finish(_):
 
 WORKSPACE_REQUIRED = {"status", "session", "mission", "approve", "ship-approve",
                       "start", "checkpoint", "finish", "sync", "install",
-                      "invoke", "handoff"}
+                      "invoke", "handoff", "hooks"}
 
 def find_project_root(start=None):
     current = Path(start or Path.cwd()).resolve()
@@ -1403,6 +1493,9 @@ def main():
     cp.add_argument("--note", default=None, metavar="TEXT",
                     help="append this note to the handoff checkpoint log and stamp handoff freshness")
     cp.set_defaults(fn=cmd_checkpoint)
+    hg = sub.add_parser("hooks")
+    hg.add_argument("action", choices=["install", "uninstall", "status"])
+    hg.set_defaults(fn=cmd_hooks)
     wk = sub.add_parser("worker"); wk.add_argument("worker"); wk.set_defaults(fn=cmd_worker)
     sy = sub.add_parser("sync", parents=[trust])
     sy.add_argument("target")
