@@ -23,10 +23,13 @@ Use this file to make a fresh agent session immediately useful.
   Phase 2 (`juicer session` — read-only briefing from state.json) and
   Phase 3 (default-on `main`/`master` pre-commit guard installed by
   `juicer init`, escapes `--no-verify`/`JUICER_NO_GIT_GUARD`/
-  `--no-git-guard`, never `core.hooksPath`) are committed.
-  225 tests green on 3.12, `sync all --check` clean.
+  `--no-git-guard`, never `core.hooksPath`) and Phase 4
+  (`juicer hooks install|uninstall|status` — block-only removal,
+  foreign hook content and mode preserved) are committed.
+  232 tests green on 3.12, `sync all --check` clean.
   Commits `11c1340` `1d0bc43` `3aa46b0` `72e9e50` `f611e6d` `23efd95`
-  `0e04d21` `f290755` `2908c83` `01e6983` `fdb1ef4` `7499ae6`.
+  `0e04d21` `f290755` `2908c83` `01e6983` `fdb1ef4` `7499ae6`
+  `8d83afa` `ff511df` `4d01872`.
 
 ## Audit findings and where they stand
 
@@ -101,10 +104,11 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## What remains
 
-- **2.5.0 phases 4–7** (approved scope, one phase at a time with the
-  suite green each time): `juicer hooks install|uninstall|status` with
-  hook chaining and preservation; npm CLI `@juicer-kit/cli` (local
-  `npm pack` only — **no publish** without an explicit step);
+- **2.5.0 phases 5–7** (approved scope, one phase at a time with the
+  suite green each time): npm CLI `@juicer-kit/cli` (local `npm pack`
+  only — **no publish** without an explicit step; payload allowlist;
+  JS root guard runs before Python; kit materialized under
+  `.juicer-kit/`; `.juicer/install.json` manifest);
   `juicer install`; `juicer update` (in 2.5.0, non-destructive,
   manifest/ledger based, no schema migration); version consolidation to
   2.5.0; release.
@@ -189,11 +193,12 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- **2.5.0 is in flight.** Phases 0–3 are committed; next is Phase 4
-  (`juicer hooks install|uninstall|status` + chaining), then the npm
-  CLI, install/update, version consolidation and release. Decisions 1–3 of
-  the plan (npm name/no-publish, update in 2.5.0, no `doctor`) are
-  closed — do not reopen without a concrete technical blocker.
+- **2.5.0 is in flight.** Phases 0–4 are committed; next is Phase 5
+  (npm CLI `@juicer-kit/cli`: payload allowlist, `.juicer/` layout in
+  `.juicer-kit/`, JS root guard before Python, `.juicer/install.json`),
+  then install/update, version consolidation and release.
+  Decisions 1–3 of the plan (npm name/no-publish, update in 2.5.0,
+  no `doctor`) are closed — do not reopen without a concrete blocker.
 - v2.4.0 is released: the annotated tag points at `ec174d9`; `main` and
   the tag are pushed and in sync, same process as v2.1.0–v2.3.0.
 - No GitHub Release step exists or is pending: `GET /releases` returns
@@ -246,3 +251,7 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
   hook chained before the block, idempotent re-init, stale-block refresh,
   no `core.hooksPath`); `test_state_integrity` fixtures now init with
   `--no-git-guard`; full suite → 225 passed.
+- 2.5.0 Phase 4: `tests/test_hooks.py` (7 tests — install/status/
+  uninstall lifecycle, guard-only hook deleted, foreign content + mode
+  preserved, no-op uninstall, idempotence, clean non-git errors); full
+  suite → 232 passed.
