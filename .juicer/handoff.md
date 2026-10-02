@@ -12,8 +12,8 @@ Use this file to make a fresh agent session immediately useful.
   documentation/version finalization are in history. 174 tests green on
   3.12, 173 + 1 skip on 3.8, `sync --check` clean. BLOCKER 0, HIGH 0,
   MEDIUM 0 — Security Baseline PASS for v2.4.0.
-- Not done, and explicitly forbidden until told otherwise: no tag, no
-  push, no release publish.
+- Release: **done.** The annotated tag `v2.4.0` points at `ec174d9`;
+  `main` and the tag are pushed and in sync (see Next action).
 
 ## Audit findings and where they stand
 
