@@ -1,4 +1,4 @@
-<!-- juicer:handoff kit=2.4.0 revision=0 -->
+<!-- juicer:handoff kit=2.5.0 revision=0 -->
 # Handoff
 
 Use this file to make a fresh agent session immediately useful.
@@ -30,11 +30,19 @@ Use this file to make a fresh agent session immediately useful.
   that doubles as the `.juicer-kit/` payload, `juicer-kit install`
   materializes byte-idempotently and writes `.juicer/install.json`,
   JS root guard runs before Python which refuses root in `cmd_init`
-  unless `--force-root`, `--yes` never bypasses) are committed.
-  243 tests green on 3.12, `sync all --check` clean.
+  unless `--force-root`, `--yes` never bypasses) and Phase 6
+  (`juicer-kit update`: manifest-driven — untouched files refreshed,
+  edited files kept and reported, hash-matching stale files pruned,
+  downgrade warned, legacy layout adopted conservatively;
+  `juicer update` delegates via `npx --yes @juicer-kit/cli update`;
+  version consolidated to 2.5.0; `npm pack` validated; plus a small
+  `fix(init)`: the "nested workspace" note now requires `ancestor !=
+  cwd`) are committed.
+  252 tests green on 3.12, `sync all --check` clean.
   Commits `11c1340` `1d0bc43` `3aa46b0` `72e9e50` `f611e6d` `23efd95`
   `0e04d21` `f290755` `2908c83` `01e6983` `fdb1ef4` `7499ae6`
-  `8d83afa` `ff511df` `4d01872` `e31f336` `d47c783` `d66e899`.
+  `8d83afa` `ff511df` `4d01872` `e31f336` `d47c783` `d66e899`
+  `64a43ff` `4d66508` `a6e214c` `648acf1` `ce4dd9b` `154ed0e`.
 
 ## Audit findings and where they stand
 
@@ -109,16 +117,15 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## What remains
 
-- **2.5.0 phases 6–7** (approved scope, one phase at a time with the
-  suite green each time): `juicer update`/`juicer-kit update`
-  (non-destructive, manifest/ledger based, detects modified files,
-  preserves customizations, version consolidation to 2.5.0);
-  release (local `npm pack` validation already green — **no publish**
-  without an explicit step).
+- **2.5.0 Phase 7 — release prep only:** final review of the phase 0–6
+  work, then the explicit human-approval steps. Local `npm pack`
+  validation is already green (`tests/test_npm_cli.py`); **no publish,
+  no tag, no push** without explicit approval.
 - Explicitly OUT of 2.5.0 (do not build): `juicer doctor`, pre-push
   hook, native Claude/Cursor session hooks, schema migrations,
   automatic npm publish.
-- Requires explicit approval, do not infer: tag, push, release publish.
+- Requires explicit approval, do not infer: tag, push, release publish,
+  `npm publish`.
 
 ## Important files
 
@@ -196,12 +203,14 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
 
 ## Next action
 
-- **2.5.0 is in flight.** Phases 0–5 are committed; next is Phase 6
-  (`juicer update` + `juicer-kit update` from `.juicer/install.json`,
-  version consolidation to 2.5.0, `npm pack` tarball validation), then
-  the release phase. Decisions 1–3 of the plan (npm name/no-publish,
-  update in 2.5.0, no `doctor`) are closed — do not reopen without a
-  concrete blocker. Tag/push/publish still need explicit approval.
+- **2.5.0 Phases 0–6 are committed; only Phase 7 (release prep) is
+  left.** It is a review of the accumulated work plus the explicit
+  human-approval steps — tag, push, `npm publish` are never inferred.
+  Decisions 1–3 of the plan (npm name/no-publish, update in 2.5.0,
+  no `doctor`) are closed — do not reopen without a concrete blocker.
+  The package is currently NOT published: until an approved publish,
+  `npx @juicer-kit/cli` cannot resolve from the registry (the tarball
+  path is tested offline and works).
 - v2.4.0 is released: the annotated tag points at `ec174d9`; `main` and
   the tag are pushed and in sync, same process as v2.1.0–v2.3.0.
 - No GitHub Release step exists or is pending: `GET /releases` returns
@@ -266,3 +275,18 @@ BLOCKER=0 and HIGH=0 (or explicitly documented non-threats).
   files with zero `__pycache__`/`*.pyc`/`.DS_Store`; offline smoke from
   the real tarball: extract → `juicer-kit install` → 85 payload files,
   `Juicer Kit v2.4.0 initialized.`, exit 0.
+- 2.5.0 Phase 6: `tests/test_npm_cli.py` grew to 22 tests — update
+  preservation (`kept (modified)` on stderr, missing kit file restored,
+  hash-matching stale file pruned, `--force` overwrite), downgrade
+  warning (`99.0.0 -> 2.5.0`) with `installed_at` refresh, byte-idempotent
+  re-run (`install manifest: unchanged`), legacy no-manifest adoption
+  (nothing overwritten or pruned), root refusal before writes,
+  `juicer update` delegation (missing-manifest/missing-npx errors, shim
+  `npx` receives `--yes @juicer-kit/cli update [--force]`, child exit
+  code propagated), and `npm pack --dry-run --json` (required entries
+  present, no `__pycache__`/`*.pyc`/`.DS_Store`, no tests/docs/.github);
+  full suite → 252 passed, 3 skipped (root-only); `sync all --check`
+  clean; version sweep 2.4.0 → 2.5.0 across VERSION, kit.yaml,
+  package.json, bin/juicer, state.json, README, both guides, test pin,
+  CHANGELOG `## 2.5.0` entry; `juicer status` shows the expected
+  advisory note until the marker restamp (now `kit=2.5.0 revision=0`).
