@@ -217,7 +217,7 @@ There are 3 ways to install Juicer Kit in your project.
 
    ```bash
    ls -la
-   # Should show: .opencode/, backlog/, skills/, commands/
+   # Should show: .opencode/, backlog/
    ```
 
 **Advantages**:
@@ -322,43 +322,36 @@ juicer-kit/
 ├── README.md                 # Main documentation
 ├── .opencode/
 │   └── agents/
-│       ├── core/
-│       │   └── orchestrator.md       # Product Owner
-│       ├── research/
-│       │   ├── finder.md             # Explorer
-│       │   ├── analyst.md            # Analyst
-│       │   └── researcher.md         # Researcher
-│       ├── planning/
-│       │   ├── architect.md          # Architect
-│       │   └── planner.md            # Planner
-│       ├── implementation/
-│       │   ├── coder.md              # Developer
-│       │   ├── editor.md             # Editor
-│       │   ├── fixer.md              # Fixer
-│       │   └── refactorer.md         # Refactorer
-│       ├── quality/
-│       │   ├── reviewer.md           # Reviewer
-│       │   ├── tester.md             # Tester
-│       │   ├── debugger.md           # Debugger
-│       │   └── security.md           # Security Auditor
-│       ├── documentation/
-│       │   ├── documenter.md         # Documenter
-│       │   └── commenter.md          # Commenter
-│       └── infrastructure/
-│           ├── devops.md             # DevOps
-│           └── optimizer.md          # Optimizer
+│       ├── orchestrator.md       # Product Owner
+│       ├── finder.md             # Explorer
+│       ├── analyst.md            # Analyst
+│       ├── researcher.md         # Researcher
+│       ├── architect.md          # Architect
+│       ├── planner.md            # Planner
+│       ├── coder.md              # Developer
+│       ├── editor.md             # Editor
+│       ├── fixer.md              # Fixer
+│       ├── refactorer.md         # Refactorer
+│       ├── reviewer.md           # Reviewer
+│       ├── tester.md             # Tester
+│       ├── debugger.md           # Debugger
+│       ├── security.md           # Security Auditor
+│       ├── documenter.md         # Documenter
+│       ├── commenter.md          # Commenter
+│       ├── devops.md             # DevOps
+│       └── optimizer.md          # Optimizer
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
 │   └── done/                 # Completed tasks
-├── skills/
-│   ├── tdd-workflow.md
-│   ├── security-review.md
-│   ├── prd-template.md
-│   ├── api-design.md
-│   ├── code-review-checklist.md
-│   └── context-management.md
-└── commands/
+├── .opencode/skills/
+│   ├── tdd-workflow/SKILL.md
+│   ├── security-review/SKILL.md
+│   ├── prd-template/SKILL.md
+│   ├── api-design/SKILL.md
+│   ├── code-review-checklist/SKILL.md
+│   └── context-management/SKILL.md
+└── .opencode/commands/
     ├── add-backlog.md
     ├── start.md
     ├── edit-backlog.md
@@ -367,16 +360,15 @@ juicer-kit/
     ├── review.md
     ├── security-audit.md
     ├── test.md
-    ├── document.md
-    └── compact.md
+    └── document.md
 ```
 
 ### What each part does:
 
 - **`.opencode/agents/`** → Specialized agents (the "team" of AI).
 - **`backlog/`** → Task management system.
-- **`skills/`** → Reusable playbooks (e.g., TDD, security review).
-- **`commands/`** → Slash shortcuts (e.g., `/add-backlog`, `/plan`).
+- **`.opencode/skills/`** → Reusable playbooks (e.g., TDD, security review).
+- **`.opencode/commands/`** → Slash shortcuts (e.g., `/add-backlog`, `/plan`).
 
 ---
 
@@ -609,10 +601,10 @@ Task Added to Backlog
 - Type `/edit-backlog TASK-003` to modify
 ```
 
-#### Method 2: `@backlog add` Agent
+#### Method 2: `/add-backlog` Command
 
 ```
-@backlog add Create password reset flow with email
+/add-backlog Create password reset flow with email
 ```
 
 #### Method 3: Editing `backlog.md` Manually
@@ -639,13 +631,7 @@ Open `backlog/backlog.md` and add:
 
 ### Viewing the Backlog
 
-```
-@backlog show
-
-or
-
-/backlog
-```
+Read `backlog/backlog.md` (pending tasks) and `backlog/in-progress.md` (tasks in progress).
 
 **Response**:
 
@@ -1705,14 +1691,6 @@ Removes a task from backlog.
 /remove-backlog TASK-001
 ```
 
-#### `/backlog`
-
-Shows current backlog.
-
-```
-/backlog
-```
-
 ---
 
 ### Development Commands
@@ -1733,13 +1711,7 @@ Creates or updates documentation.
 /document Create API documentation for authentication endpoints
 ```
 
-#### `/compact`
-
-Summarizes current session to reduce tokens.
-
-```
-/compact
-```
+> **Note:** `/compact` (summarize the current session to reduce tokens) is a **native OpenCode command**, not part of the Juicer Kit. Just type `/compact` (alias `/summarize`) in the TUI.
 
 ---
 
@@ -1920,6 +1892,8 @@ Facilitates maintenance and onboarding.
 
 ### 6. Use `/compact` in long sessions
 
+`/compact` is a **native OpenCode command** (alias `/summarize`), not a Juicer Kit command.
+
 ```
 /compact
 ```
@@ -1950,7 +1924,7 @@ Remove irrelevant files from context.
 
 ### 2. Summarization
 
-Use `/compact` when session exceeds ~50 messages.
+Use `/compact` (native OpenCode command) when session exceeds ~50 messages.
 
 ```
 /compact
@@ -2107,7 +2081,7 @@ git checkout -b feature/new-agent
 
 ### 3. Add the agent
 
-Create a file in `.opencode/agents/<category>/`.
+Create a file in `.opencode/agents/<name>.md`.
 
 ### 4. Document
 

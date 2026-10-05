@@ -22,39 +22,32 @@ juicer-kit/
 │   └── done/                 # Completed tasks
 ├── .opencode/
 │   └── agents/
-│       ├── core/
-│       │   └── orchestrator.md       # Master coordinator & PO
-│       ├── research/
-│       │   ├── finder.md             # Code explorer
-│       │   ├── analyst.md            # Code analyst
-│       │   └── researcher.md         # External research
-│       ├── planning/
-│       │   ├── architect.md          # Solution architect
-│       │   └── planner.md            # Task planner
-│       ├── implementation/
-│       │   ├── coder.md              # Main developer
-│       │   ├── editor.md             # Existing code editor
-│       │   ├── fixer.md              # Bug fixer
-│       │   └── refactorer.md         # Refactoring specialist
-│       ├── quality/
-│       │   ├── reviewer.md           # Code reviewer
-│       │   ├── tester.md             # Test engineer
-│       │   ├── debugger.md           # Bug investigator
-│       │   └── security.md           # Security auditor
-│       ├── documentation/
-│       │   ├── documenter.md         # Technical writer
-│       │   └── commenter.md          # Comments & JSDoc
-│       └── infrastructure/
-│           ├── devops.md             # DevOps engineer
-│           └── optimizer.md          # Performance optimizer
-├── skills/                   # Reusable skills
-│   ├── tdd-workflow.md
-│   ├── security-review.md
-│   ├── prd-template.md
-│   ├── api-design.md
-│   ├── code-review-checklist.md
-│   └── context-management.md
-└── commands/                 # Slash commands
+│       ├── orchestrator.md       # Master coordinator & PO
+│       ├── finder.md             # Code explorer
+│       ├── analyst.md            # Code analyst
+│       ├── researcher.md         # External research
+│       ├── architect.md          # Solution architect
+│       ├── planner.md            # Task planner
+│       ├── coder.md              # Main developer
+│       ├── editor.md             # Existing code editor
+│       ├── fixer.md              # Bug fixer
+│       ├── refactorer.md         # Refactoring specialist
+│       ├── reviewer.md           # Code reviewer
+│       ├── tester.md             # Test engineer
+│       ├── debugger.md           # Bug investigator
+│       ├── security.md           # Security auditor
+│       ├── documenter.md         # Technical writer
+│       ├── commenter.md          # Comments & JSDoc
+│       ├── devops.md             # DevOps engineer
+│       └── optimizer.md          # Performance optimizer
+├── .opencode/skills/         # Reusable skills
+│   ├── tdd-workflow/SKILL.md
+│   ├── security-review/SKILL.md
+│   ├── prd-template/SKILL.md
+│   ├── api-design/SKILL.md
+│   ├── code-review-checklist/SKILL.md
+│   └── context-management/SKILL.md
+└── .opencode/commands/       # Slash commands
     ├── add-backlog.md
     ├── start.md
     ├── edit-backlog.md
@@ -63,8 +56,7 @@ juicer-kit/
     ├── review.md
     ├── security-audit.md
     ├── test.md
-    ├── document.md
-    └── compact.md
+    └── document.md
 ```
 
 ## 🚀 Installation
@@ -220,21 +212,11 @@ Or call specific agents:
 
 ```
 /add-backlog Create user authentication with JWT
-
-or
-
-@backlog add Create user authentication with JWT
 ```
 
 #### Show Backlog
 
-```
-@backlog show
-
-or
-
-/backlog
-```
+Read `backlog/backlog.md` (pending tasks) and `backlog/in-progress.md` (tasks in progress).
 
 #### Start a Task
 
@@ -302,7 +284,7 @@ The `@orchestrator` already follows defined pipelines, but you can invoke them m
 
 ### Slash Commands (if configured)
 
-If you copied the `commands/` folder to `.opencode/commands/`, you can use:
+If you copied the kit's `.opencode/commands/` folder, you can use:
 
 ```
 /add-backlog Create user authentication
@@ -312,12 +294,13 @@ If you copied the `commands/` folder to `.opencode/commands/`, you can use:
 /security-audit Audit the authentication module.
 /test Run tests for the auth module.
 /document Create API documentation.
-/compact Summarize the current session.
 ```
+
+`/compact` (session compaction) is a **native OpenCode command**, not part of this kit.
 
 ### Skills (if configured)
 
-If you copied the `skills/` folder to `.opencode/skills/`, you can invoke:
+If you copied the kit's `.opencode/skills/` folder, you can invoke:
 
 ```
 @skill tdd-workflow Implement a new feature using TDD.
@@ -444,7 +427,7 @@ If you want to contribute with new agents, skills, or commands:
 
 1. Fork the kit repository.
 2. Create a branch for your feature.
-3. Add the agent to `.opencode/agents/<category>/`.
+3. Add the agent to `.opencode/agents/<name>.md`.
 4. Document in `README.md`.
 5. Submit a PR.
 
