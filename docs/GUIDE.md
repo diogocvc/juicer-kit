@@ -179,7 +179,7 @@ OpenCode works with various providers:
 - **Google** (Gemini)
 - **OpenRouter** (170+ models)
 
-Configure your keys in `~/.config/opencode/config.json` or via environment variables.
+Configure your keys in `~/.config/opencode/opencode.json`, or run `/connect` inside OpenCode.
 
 ---
 
@@ -209,9 +209,9 @@ There are 3 ways to install Juicer Kit in your project.
    # Copy folders
    cp -r ../juicer-kit/.opencode ./
    cp -r ../juicer-kit/backlog ./
-   cp -r ../juicer-kit/skills ./
-   cp -r ../juicer-kit/commands ./
    ```
+
+   Agents, commands and skills all live inside `.opencode/` — these two commands are enough.
 
 3. **Verify structure**:
 
@@ -244,16 +244,17 @@ There are 3 ways to install Juicer Kit in your project.
    cd my-project
 
    # Add submodule
-   git submodule add https://github.com/diogocvc/juicer-kit.git .opencode
+   git submodule add https://github.com/diogocvc/juicer-kit.git juicer-kit
    ```
 
-2. **Copy other folders** (backlog, skills, commands):
+2. **Link the kit into the project**:
 
    ```bash
-   cp -r .opencode/backlog ./
-   cp -r .opencode/skills ./
-   cp -r .opencode/commands ./
+   ln -s juicer-kit/.opencode ./.opencode
+   cp -r juicer-kit/backlog ./
    ```
+
+   `backlog/` is copied because each project keeps its own tasks.
 
 3. **Commit**:
 
@@ -267,6 +268,8 @@ There are 3 ways to install Juicer Kit in your project.
 ```bash
 git submodule update --remote
 ```
+
+The symlink already points to the updated content — restart OpenCode after updating.
 
 **Advantages**:
 - Automatic updates.
@@ -298,8 +301,6 @@ git submodule update --remote
 
    ln -s ~/juicer-kit/.opencode ./.opencode
    ln -s ~/juicer-kit/backlog ./backlog
-   ln -s ~/juicer-kit/skills ./skills
-   ln -s ~/juicer-kit/commands ./commands
    ```
 
 **Advantages**:
@@ -320,47 +321,51 @@ Juicer Kit has the following structure:
 ```
 juicer-kit/
 ├── README.md                 # Main documentation
-├── .opencode/
-│   └── agents/
-│       ├── orchestrator.md       # Product Owner
-│       ├── finder.md             # Explorer
-│       ├── analyst.md            # Analyst
-│       ├── researcher.md         # Researcher
-│       ├── architect.md          # Architect
-│       ├── planner.md            # Planner
-│       ├── coder.md              # Developer
-│       ├── editor.md             # Editor
-│       ├── fixer.md              # Fixer
-│       ├── refactorer.md         # Refactorer
-│       ├── reviewer.md           # Reviewer
-│       ├── tester.md             # Tester
-│       ├── debugger.md           # Debugger
-│       ├── security.md           # Security Auditor
-│       ├── documenter.md         # Documenter
-│       ├── commenter.md          # Commenter
-│       ├── devops.md             # DevOps
-│       └── optimizer.md          # Optimizer
+├── AGENTS.md                 # Minimal project instructions for OpenCode
+├── LICENSE
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
 │   └── done/                 # Completed tasks
-├── .opencode/skills/
-│   ├── tdd-workflow/SKILL.md
-│   ├── security-review/SKILL.md
-│   ├── prd-template/SKILL.md
-│   ├── api-design/SKILL.md
-│   ├── code-review-checklist/SKILL.md
-│   └── context-management/SKILL.md
-└── .opencode/commands/
-    ├── add-backlog.md
-    ├── start.md
-    ├── edit-backlog.md
-    ├── remove-backlog.md
-    ├── plan.md
-    ├── review.md
-    ├── security-audit.md
-    ├── test.md
-    └── document.md
+├── docs/
+│   └── GUIDE.md              # This guide
+└── .opencode/
+    ├── agents/               # 18 specialized agents
+    │   ├── orchestrator.md       # Product Owner
+    │   ├── finder.md             # Explorer
+    │   ├── analyst.md            # Analyst
+    │   ├── researcher.md         # Researcher
+    │   ├── architect.md          # Architect
+    │   ├── planner.md            # Planner
+    │   ├── coder.md              # Developer
+    │   ├── editor.md             # Editor
+    │   ├── fixer.md              # Fixer
+    │   ├── refactorer.md         # Refactorer
+    │   ├── reviewer.md           # Reviewer
+    │   ├── tester.md             # Tester
+    │   ├── debugger.md           # Debugger
+    │   ├── security.md           # Security Auditor
+    │   ├── documenter.md         # Documenter
+    │   ├── commenter.md          # Commenter
+    │   ├── devops.md             # DevOps
+    │   └── optimizer.md          # Optimizer
+    ├── skills/               # 6 reusable skills
+    │   ├── tdd-workflow/SKILL.md
+    │   ├── security-review/SKILL.md
+    │   ├── prd-template/SKILL.md
+    │   ├── api-design/SKILL.md
+    │   ├── code-review-checklist/SKILL.md
+    │   └── context-management/SKILL.md
+    └── commands/             # 9 slash commands
+        ├── add-backlog.md
+        ├── start.md
+        ├── edit-backlog.md
+        ├── remove-backlog.md
+        ├── plan.md
+        ├── review.md
+        ├── security-audit.md
+        ├── test.md
+        └── document.md
 ```
 
 ### What each part does:
@@ -369,6 +374,8 @@ juicer-kit/
 - **`backlog/`** → Task management system.
 - **`.opencode/skills/`** → Reusable playbooks (e.g., TDD, security review).
 - **`.opencode/commands/`** → Slash shortcuts (e.g., `/add-backlog`, `/plan`).
+- **`AGENTS.md`** → Your project's own instructions for OpenCode (optional).
+- **`docs/GUIDE.md`** → This guide.
 
 ---
 
@@ -406,11 +413,12 @@ Juicer Kit works with various models. To configure:
 
 **Option A: Global (recommended)**
 
-Edit `~/.config/opencode/config.json`:
+Edit `~/.config/opencode/opencode.json`:
 
 ```json
 {
-  "default_model": "anthropic/claude-sonnet-4.5"
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4.5"
 }
 ```
 
@@ -419,8 +427,10 @@ Edit `~/.config/opencode/config.json`:
 In OpenCode chat:
 
 ```
-/model openai/gpt-5.2-high
+/models
 ```
+
+This opens the model selector (alias `/mo`).
 
 **Option C: Per Agent**
 
@@ -1517,7 +1527,9 @@ Login and receive JWT tokens.
 
 ## Skills
 
-Skills are **reusable playbooks** that you invoke when you want to follow a specific work pattern.
+Skills are **reusable playbooks** that you follow when you want a specific work pattern.
+
+The agent loads a skill automatically when the task matches it. To force one, ask in plain language — no special syntax needed.
 
 ### TDD Workflow
 
@@ -1530,7 +1542,7 @@ Skills are **reusable playbooks** that you invoke when you want to follow a spec
 **How to use**:
 
 ```
-@skill tdd-workflow Implement the user registration endpoint.
+Use the tdd-workflow skill: implement the user registration endpoint.
 ```
 
 **What happens**:
@@ -1552,7 +1564,7 @@ Skills are **reusable playbooks** that you invoke when you want to follow a spec
 **How to use**:
 
 ```
-@skill security-review Review the authentication module.
+Use the security-review skill: review the authentication module.
 ```
 
 **What happens**:
@@ -1574,7 +1586,7 @@ Skills are **reusable playbooks** that you invoke when you want to follow a spec
 **How to use**:
 
 ```
-@skill prd-template Create a PRD for the password reset feature.
+Use the prd-template skill: create a PRD for the password reset feature.
 ```
 
 **What happens**:
@@ -1596,7 +1608,7 @@ Skills are **reusable playbooks** that you invoke when you want to follow a spec
 **How to use**:
 
 ```
-@skill api-design Design the user profile API.
+Use the api-design skill: design the user profile API.
 ```
 
 **What happens**:
@@ -1618,7 +1630,7 @@ Skills are **reusable playbooks** that you invoke when you want to follow a spec
 **How to use**:
 
 ```
-@skill code-review-checklist Review the auth service implementation.
+Use the code-review-checklist skill: review the auth service implementation.
 ```
 
 **What happens**:
@@ -1642,7 +1654,7 @@ Skills are **reusable playbooks** that you invoke when you want to follow a spec
 **How to use**:
 
 ```
-@skill context-management Optimize the current session context.
+Use the context-management skill: optimize the current session context.
 ```
 
 **What happens**:
@@ -1719,7 +1731,7 @@ Creates or updates documentation.
 
 #### `/review`
 
-Reviews code changes.
+Reviews code changes. Runs as the `@reviewer` agent.
 
 ```
 /review Review all changes in the last commit
@@ -1735,7 +1747,7 @@ Audits code with security focus.
 
 #### `/test`
 
-Creates and runs tests.
+Creates and runs tests. Runs as the `@tester` agent.
 
 ```
 /test Run tests for the auth module

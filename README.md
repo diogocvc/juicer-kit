@@ -16,47 +16,51 @@ Provide a system of versionable agents that you can reuse across multiple projec
 ```
 juicer-kit/
 ├── README.md                 # This documentation
+├── AGENTS.md                 # Minimal project instructions for OpenCode
+├── LICENSE
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
 │   └── done/                 # Completed tasks
-├── .opencode/
-│   └── agents/
-│       ├── orchestrator.md       # Master coordinator & PO
-│       ├── finder.md             # Code explorer
-│       ├── analyst.md            # Code analyst
-│       ├── researcher.md         # External research
-│       ├── architect.md          # Solution architect
-│       ├── planner.md            # Task planner
-│       ├── coder.md              # Main developer
-│       ├── editor.md             # Existing code editor
-│       ├── fixer.md              # Bug fixer
-│       ├── refactorer.md         # Refactoring specialist
-│       ├── reviewer.md           # Code reviewer
-│       ├── tester.md             # Test engineer
-│       ├── debugger.md           # Bug investigator
-│       ├── security.md           # Security auditor
-│       ├── documenter.md         # Technical writer
-│       ├── commenter.md          # Comments & JSDoc
-│       ├── devops.md             # DevOps engineer
-│       └── optimizer.md          # Performance optimizer
-├── .opencode/skills/         # Reusable skills
-│   ├── tdd-workflow/SKILL.md
-│   ├── security-review/SKILL.md
-│   ├── prd-template/SKILL.md
-│   ├── api-design/SKILL.md
-│   ├── code-review-checklist/SKILL.md
-│   └── context-management/SKILL.md
-└── .opencode/commands/       # Slash commands
-    ├── add-backlog.md
-    ├── start.md
-    ├── edit-backlog.md
-    ├── remove-backlog.md
-    ├── plan.md
-    ├── review.md
-    ├── security-audit.md
-    ├── test.md
-    └── document.md
+├── docs/
+│   └── GUIDE.md              # Complete guide
+└── .opencode/
+    ├── agents/               # 18 specialized agents
+    │   ├── orchestrator.md       # Master coordinator & PO
+    │   ├── finder.md             # Code explorer
+    │   ├── analyst.md            # Code analyst
+    │   ├── researcher.md         # External research
+    │   ├── architect.md          # Solution architect
+    │   ├── planner.md            # Task planner
+    │   ├── coder.md              # Main developer
+    │   ├── editor.md             # Existing code editor
+    │   ├── fixer.md              # Bug fixer
+    │   ├── refactorer.md         # Refactoring specialist
+    │   ├── reviewer.md           # Code reviewer
+    │   ├── tester.md             # Test engineer
+    │   ├── debugger.md           # Bug investigator
+    │   ├── security.md           # Security auditor
+    │   ├── documenter.md         # Technical writer
+    │   ├── commenter.md          # Comments & JSDoc
+    │   ├── devops.md             # DevOps engineer
+    │   └── optimizer.md          # Performance optimizer
+    ├── skills/               # 6 reusable skills
+    │   ├── tdd-workflow/SKILL.md
+    │   ├── security-review/SKILL.md
+    │   ├── prd-template/SKILL.md
+    │   ├── api-design/SKILL.md
+    │   ├── code-review-checklist/SKILL.md
+    │   └── context-management/SKILL.md
+    └── commands/             # 9 slash commands
+        ├── add-backlog.md
+        ├── start.md
+        ├── edit-backlog.md
+        ├── remove-backlog.md
+        ├── plan.md
+        ├── review.md
+        ├── security-audit.md
+        ├── test.md
+        └── document.md
 ```
 
 ## 🚀 Installation
@@ -68,16 +72,20 @@ In your new project:
 ```bash
 cp -r ~/path/to/juicer-kit/.opencode ./
 cp -r ~/path/to/juicer-kit/backlog ./
-cp -r ~/path/to/juicer-kit/skills ./
-cp -r ~/path/to/juicer-kit/commands ./
 ```
+
+Agents, commands and skills all live inside `.opencode/` — these two commands are enough.
 
 ### Option 2: Use Git submodule
 
 ```bash
 # In your new project
-git submodule add https://github.com/diogocvc/juicer-kit.git .opencode
+git submodule add https://github.com/diogocvc/juicer-kit.git juicer-kit
+ln -s juicer-kit/.opencode ./.opencode
+cp -r juicer-kit/backlog ./
 ```
+
+The `backlog/` is copied because each project keeps its own tasks.
 
 To update the kit in the future:
 
@@ -85,14 +93,14 @@ To update the kit in the future:
 git submodule update --remote
 ```
 
+The symlink already points to the updated content — restart OpenCode after updating.
+
 ### Option 3: Symlink (local development)
 
 ```bash
 # In your new project
 ln -s ~/path/to/juicer-kit/.opencode ./.opencode
 ln -s ~/path/to/juicer-kit/backlog ./backlog
-ln -s ~/path/to/juicer-kit/skills ./skills
-ln -s ~/path/to/juicer-kit/commands ./commands
 ```
 
 ## 🔧 Configuration
@@ -110,18 +118,20 @@ The `model` field in each agent's frontmatter is **suggestive**. You can:
 
 - **Keep suggested models** (optimized by task type).
 - **Remove the `model` field** and use a globally configured model in OpenCode.
-- **Override in session** (e.g., `/model openai/gpt-5.2-high`).
+- **Override in session** (e.g., `/models` opens the model selector).
 
 Example frontmatter:
 
 ```md
 ---
-description: "Deep code analyst..."
-mode: "sub-agent"
+description: "Deep code analyst. Analyzes dependencies, risks, data flow, and coupling."
+mode: "subagent"
 model: "anthropic/claude-sonnet-4.5-thinking-high"  # Suggestion only
-tools:
-  read: true
-  ...
+permission:
+  read: allow
+  grep: allow
+  edit: deny
+  bash: deny
 ---
 ```
 
@@ -289,6 +299,8 @@ If you copied the kit's `.opencode/commands/` folder, you can use:
 ```
 /add-backlog Create user authentication
 /start TASK-001
+/edit-backlog TASK-001
+/remove-backlog TASK-001
 /plan Design a new API endpoint for user profiles.
 /review Review all changes in the last commit.
 /security-audit Audit the authentication module.
@@ -296,20 +308,20 @@ If you copied the kit's `.opencode/commands/` folder, you can use:
 /document Create API documentation.
 ```
 
+`/review` runs as the `@reviewer` agent and `/test` runs as the `@tester` agent.
+
 `/compact` (session compaction) is a **native OpenCode command**, not part of this kit.
 
 ### Skills (if configured)
 
-If you copied the kit's `.opencode/skills/` folder, you can invoke:
+If you copied the kit's `.opencode/skills/` folder, the agent loads a skill automatically when it matches the task. To force one, ask in plain language:
 
-```
-@skill tdd-workflow Implement a new feature using TDD.
-@skill security-review Review code for OWASP Top 10 vulnerabilities.
-@skill prd-template Create a PRD for a new feature.
-@skill api-design Design a RESTful API.
-@skill code-review-checklist Review code with structured checklist.
-@skill context-management Optimize token usage.
-```
+- `Use the tdd-workflow skill: implement a new feature using TDD.`
+- `Use the security-review skill: review code for OWASP Top 10 vulnerabilities.`
+- `Use the prd-template skill: create a PRD for a new feature.`
+- `Use the api-design skill: design a RESTful API.`
+- `Use the code-review-checklist skill: review code with a structured checklist.`
+- `Use the context-management skill: optimize token usage.`
 
 ## 🛡️ Security & Quality
 
@@ -337,6 +349,8 @@ The `@orchestrator` enforces the following gates:
 If you don't use `@orchestrator`, follow these gates manually.
 
 ## 📝 Agents
+
+All 18 agents are peers: each one is a file in `.opencode/agents/`, loaded by OpenCode as a subagent. The groups below are only a way to read the table.
 
 ### Core
 
