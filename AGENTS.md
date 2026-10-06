@@ -1,81 +1,23 @@
-# Juicer Kit
+# Project Instructions
 
-This repository uses **Juicer Kit** as its agentic development workflow.
+Juicer Kit 3.0.0 — a small Markdown kit of OpenCode agents, commands and skills.
 
-## Source of truth
+## Where things live
 
-The canonical workflow state is stored in:
+- `backlog/` — task board. `backlog/backlog.md` (pending), `backlog/in-progress.md` (running), `backlog/done/` (finished).
+- `.opencode/agents/` — the agent team (`@orchestrator`, `@finder`, `@coder`, `@reviewer`, `@tester`, …).
+- `.opencode/commands/` — slash commands (`/add-backlog`, `/edit-backlog`, `/remove-backlog`, `/start`, `/plan`, `/review`, `/test`, …).
+- `.opencode/skills/` — reusable playbooks (TDD, security review, code review checklist, …).
 
-- `.juicer/mission.md`
-- `.juicer/plan.md`
-- `.juicer/state.json`
-- `.juicer/handoff.md`
-- `.juicer/decisions.md`
-- `.juicer/learnings.md`
+## Workflow convention
 
-Do not move workflow state into a harness-specific configuration directory.
+Implementation → review → tests → done.
 
-## Portable capabilities
+1. Pick or add a task with `/add-backlog`, select it and move it to `backlog/in-progress.md` with `/start`.
+2. Let `@orchestrator` coordinate the work and delegate to the right agents.
+3. Always run `@reviewer` after code changes (`/review`).
+4. Always run `@tester` after implementation and review (`/test`).
+5. Run `@security` for authentication, user data, secrets or external APIs.
+6. Move the task to `backlog/done/` and set its status to Done.
 
-Canonical reusable skills live in:
-
-```text
-.agents/skills/
-```
-
-Canonical worker contracts live in:
-
-```text
-agents/
-```
-
-## Operating rules
-
-1. Read the active Juicer state before acting.
-2. Respect human approval gates.
-3. Work within the current unit's scope.
-4. Do not silently expand scope.
-5. Verify changes before declaring completion.
-6. Persist important state in `.juicer/handoff.md`.
-7. Record reusable engineering knowledge in `.juicer/learnings.md`.
-8. Prefer direct worker invocation over unnecessary orchestration.
-9. The current harness is an implementation detail, not the workflow.
-10. Never assume a specific model or provider.
-
-## Worker invocation
-
-When asked to perform a specialized task, select the matching Juicer worker from `agents/`.
-
-Examples:
-
-- repository reconnaissance → `finder`
-- root-cause debugging → `debugger`
-- implementation → `coder`
-- code modification → `editor`
-- review → `reviewer`
-- tests → `tester`
-- security → `security`
-- deployment → `devops`
-
-If the current harness has native subagents, use them.
-
-If it does not, execute the worker contract directly.
-
-The expected behavior and output remain the same in both cases.
-
-## Human control
-
-The agent may propose plans and execute approved units.
-
-The agent must not infer:
-
-- plan approval
-- production approval
-- destructive-action approval
-- scope expansion approval
-
-## Context economy
-
-Read only the context required for the active unit.
-
-Do not load the entire repository or historical chat by default.
+Keep tasks small enough to be finished in one session. The Markdown files are the only state: a new session resumes by reading them.
