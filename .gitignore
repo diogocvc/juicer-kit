@@ -1,6 +1,11 @@
 # OS
 .DS_Store
 
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # OpenCode local (não versionar)
 .opencode/node_modules/
 .opencode/package.json
@@ -11,3 +16,20 @@
 .opencode/cache/
 .opencode/sessions/
 .opencode/*.local.json
+
+# Espelhos de harness gerados (linha 2.x — não fazem parte do kit simples)
+.claude/agents/
+.claude/skills/
+.claude/juicer-kit.md
+.cursor/agents/
+.cursor/juicer-kit.md
+.codex/agents/
+.codex/juicer-kit.md
+
+# Estado de runtime (linha 2.x)
+.juicer/runtime/
+.juicer/tmp/
+.juicer/state.lock
+.juicer/state.json.tmp
+.juicer-kit/
+*.log

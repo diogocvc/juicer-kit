@@ -1,6 +1,6 @@
 # Project Instructions
 
-Juicer Kit v1 — a small Markdown kit of OpenCode agents, commands and skills.
+Juicer Kit 3.0.0 — a small Markdown kit of OpenCode agents, commands and skills.
 
 ## Where things live
 
