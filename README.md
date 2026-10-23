@@ -2,6 +2,8 @@
 
 A specialized agent kit for OpenCode, inspired by Mission Kit and optimized for workflows with human autonomy, security, and quality.
 
+**Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and crash recovery. The 3.x Markdown kit (agents, commands, skills) is unchanged and still works on its own.
+
 ## 🎯 Objective
 
 Provide a system of versionable agents that you can reuse across multiple projects, maintaining:
@@ -18,6 +20,23 @@ juicer-kit/
 ├── README.md                 # This documentation
 ├── AGENTS.md                 # Minimal project instructions for OpenCode
 ├── LICENSE
+├── VERSION                   # 4.0.0
+├── STATUS.md                 # Validated capabilities and limitations
+├── bin/
+│   └── juicer                # CLI entrypoint (python3)
+├── juicer/                   # Orchestration core (Python stdlib only)
+│   ├── cli.py                # Command-line interface
+│   ├── model.py              # Mission/Task/Execution contracts (B.12/B.13)
+│   ├── state.py              # Atomic writes, flock, revision fence, events
+│   ├── graph.py              # Dependency graph and eligibility
+│   ├── scheduler.py          # Automatic release, --jobs parallelism
+│   ├── checks.py             # PASS / FAIL / BLOCKED / NOT RUN
+│   ├── gates.py              # Technical gate (NOT RUN never passes)
+│   ├── gitops.py             # Worktrees, explicit merge, conflict abort
+│   ├── orchestrator.py       # Mission → run → integrate → resume flow
+│   └── harness/
+│       └── opencode.py       # OpenCode adapter (run --format json --dir)
+├── tests/                    # 64 pytest tests (fakes + real git worktrees)
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
@@ -94,6 +113,80 @@ git submodule update --remote
 ```
 
 The symlink already points to the updated content — restart OpenCode after updating.
+
+### Option 4: Use the orchestration core (4.0.0)
+
+```bash
+# In your project (needs python3 and git on PATH)
+python3 /path/to/juicer-kit/bin/juicer init
+```
+
+`init` creates `.juicer/` (mission, tasks, worktrees, evidence, events) plus a scoped `.gitignore`. From there, drive a mission from the CLI (see the workflow section below). The OpenCode binary is auto-detected (`OPENCODE_BIN` → `PATH` → Zed registry); override with `export OPENCODE_BIN=/path/to/opencode`.
+
+## 🧃 Orchestration Core (4.0.0)
+
+The core turns a mission into isolated, auditable executions through OpenCode:
+
+1. Each task runs via `opencode run --format json --agent <agent> --dir <worktree>`.
+2. Work runs in a **dedicated git worktree/branch** (`juicer/<TASK-ID>`) — never on your checkout.
+3. The agent's prose is never evidence; only the commit, diff, captured output and **deterministic checks** are.
+4. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes) and post-merge checks on the merged commit.
+5. State is crash-safe: atomic writes, `flock`, revision fences, JSONL events, `juicer resume` after interruption.
+
+### Quick start
+
+```bash
+python3 bin/juicer init
+python3 bin/juicer mission \
+  --title "Add rate limiting" \
+  --objective "429 responses on public endpoints" \
+  --criterion "limiter active + tests" \
+  --constraint "no new dependencies"
+
+cat > tasks.json <<'EOF'
+{"tasks": [{
+  "id": "TASK-001",
+  "title": "Token-bucket limiter",
+  "description": "Implement limiter in src/limiter.py with tests.",
+  "depends_on": [],
+  "agent": "coder",
+  "checks": [{"id": "tests", "command": ["python3", "-m", "pytest", "-q", "tests/"], "required": true}],
+  "scope": {"paths": ["src/limiter.py", "tests/"], "constraints": []}
+}]}
+EOF
+
+python3 bin/juicer decompose tasks.json
+python3 bin/juicer status
+python3 bin/juicer run TASK-001        # or: juicer run --jobs 4
+python3 bin/juicer integrate TASK-001
+```
+
+### Commands
+
+| Command | Purpose |
+| --- | --- |
+| `juicer init` | Create `.juicer/` state in the current repo |
+| `juicer mission --title --objective --criterion --constraint` | Define the mission |
+| `juicer gap "question"` | Record an open question (keeps mission `waiting_human`) |
+| `juicer inspect` | Snapshot of project, dependencies, open tasks |
+| `juicer decompose tasks.json` | Validate and register tasks (stable IDs, dependencies) |
+| `juicer status` | Mission state, eligibility, next action |
+| `juicer run [TASK-ID] [--jobs N]` | Execute eligible tasks (parallel or serial, with recorded reason) |
+| `juicer retry TASK-ID` | Re-run a failed task (new attempt, same identity) |
+| `juicer integrate TASK-ID` | Gate + explicit merge + post-merge checks |
+| `juicer checkpoint` | Force a consistency checkpoint |
+| `juicer resume` | Recover interrupted tasks after a crash/restart |
+| `juicer events` | Tail the append-only JSONL event log |
+| `juicer discover` | Show detected OpenCode binary and capabilities |
+
+### Guarantees
+
+- **Isolation**: each task gets its own worktree; pre-existing dirty changes are refused, never overwritten.
+- **No silent skips**: a task reaches `done` only after technical gate PASS, explicit integration and post-merge check PASS.
+- **Audit trail**: `.juicer/evidence/` (sessions, diffs, check logs), `.juicer/executions/`, `.juicer/events.jsonl`.
+- **Honest statuses**: `PASS / FAIL / BLOCKED / NOT RUN` — a result that could not be obtained is never a pass.
+
+Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
 
 ### Option 3: Symlink (local development)
 
