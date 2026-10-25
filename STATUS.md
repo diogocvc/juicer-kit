@@ -2,7 +2,8 @@
 
 Estado real da implementação, capacidades validadas e limitações. Este
 documento descreve apenas o que foi implementado e executado; não contém
-promessas de recursos futuros.
+promessas de recursos futuros. Lacunas planejadas estão mapeadas em
+[`docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md`](docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md).
 
 ## Versão
 
@@ -29,9 +30,11 @@ evidência) não depende da versão.
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | testes `test_gates.py` |
 | Merge explícito + conflito detectado (sem sobrescrita) | **supported** | testes `test_preservation.py` |
 | Checks pós-integração no commit mergeado | **supported** | smoke real + teste `test_integrate.py` |
-| Retomada após reinício (checkpoint/resume) | **supported** | teste `test_state.py` + smoke real (`resume`) |
+| Retomada após reinício (checkpoint/resume) | **partial** | `resume` recupera `in_progress`, mas ainda não reconcilia execution/worktree (TASK-004, TASK-008) |
 | Proteção de mudanças pré-existentes (árvore suja) | **supported** | teste `test_preservation.py` |
-| Aprovação humana separada do gate técnico | **supported** | teste `test_integrate.py` |
+| Aprovação humana separada do gate técnico | **partial** | `--approve` separa o gate humano, mas não registra aprovador/commit/tree (TASK-006) |
+| Critérios de aceitação verificados pelo core | **unsupported** | critérios são apenas injetados no prompt (TASK-005) |
+| Revisão e segurança obrigatórias no core | **unsupported** | agentes existem, mas o core ainda não os aciona (TASK-005) |
 | `--dir` obrigatório para worktrees | **limitação conhecida** | o OpenCode 1.19.4 sobe a árvore até o checkout principal sem `--dir`; o adapter sempre passa `--dir` |
 | Permissões headless | **experimental** | o config global do usuário tem `allow *`; sem permissões restritivas validadas em headless |
 | Worktrees nativos do OpenCode V2 | **unsupported (1.19.4)** | usado fallback git CLI (declarado no adapter) |

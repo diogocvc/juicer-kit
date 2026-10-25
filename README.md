@@ -42,7 +42,8 @@ juicer-kit/
 │   ├── in-progress.md        # Tasks in progress
 │   └── done/                 # Completed tasks
 ├── docs/
-│   └── GUIDE.md              # Complete guide
+│   ├── GUIDE.md              # Complete guide
+│   └── PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md  # Approved 4.0 plan
 └── .opencode/
     ├── agents/               # 18 specialized agents
     │   ├── orchestrator.md       # Master coordinator & PO
@@ -186,7 +187,7 @@ python3 bin/juicer integrate TASK-001
 - **Audit trail**: `.juicer/evidence/` (sessions, diffs, check logs), `.juicer/executions/`, `.juicer/events.jsonl`.
 - **Honest statuses**: `PASS / FAIL / BLOCKED / NOT RUN` — a result that could not be obtained is never a pass.
 
-Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
+Implementation plan, phases, gates and backlog mapping: see [docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md](docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md). Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
 
 ### Option 3: Symlink (local development)
 
