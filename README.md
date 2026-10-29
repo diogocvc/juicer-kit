@@ -2,7 +2,7 @@
 
 A specialized agent kit for OpenCode, inspired by Mission Kit and optimized for workflows with human autonomy, security, and quality.
 
-**Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and crash recovery. The 3.x Markdown kit (agents, commands, skills) is unchanged and still works on its own.
+**Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and checkpoint/resume. The 3.x Markdown kit (agents, commands, skills) is unchanged and still works on its own.
 
 ## 🎯 Objective
 
@@ -35,14 +35,16 @@ juicer-kit/
 │   ├── gitops.py             # Worktrees, explicit merge, conflict abort
 │   ├── orchestrator.py       # Mission → run → integrate → resume flow
 │   └── harness/
-│       └── opencode.py       # OpenCode adapter (run --format json --dir)
-├── tests/                    # 64 pytest tests (fakes + real git worktrees)
+│       ├── contract.py       # discover/run request-result contract
+│       └── opencode.py       # OpenCode V2 adapter (run --format json --standalone)
+├── tests/                    # 81 pytest tests (80 default + 1 opt-in smoke)
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
 │   └── done/                 # Completed tasks
 ├── docs/
 │   ├── GUIDE.md              # Complete guide
+│   ├── HARNESS_CONTRACT.md   # Internal harness contract
 │   └── PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md  # Approved 4.0 plan
 └── .opencode/
     ├── agents/               # 18 specialized agents
@@ -128,11 +130,12 @@ python3 /path/to/juicer-kit/bin/juicer init
 
 The core turns a mission into isolated, auditable executions through OpenCode:
 
-1. Each task runs via `opencode run --format json --agent <agent> --dir <worktree>`.
+1. Each task runs via `opencode run --format json --agent <agent> --standalone` with the worktree as the process CWD.
 2. Work runs in a **dedicated git worktree/branch** (`juicer/<TASK-ID>`) — never on your checkout.
 3. The agent's prose is never evidence; only the commit, diff, captured output and **deterministic checks** are.
-4. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes) and post-merge checks on the merged commit.
-5. State is crash-safe: atomic writes, `flock`, revision fences, JSONL events, `juicer resume` after interruption.
+4. **Review/security are evidence gates**: `juicer review-run` / `security-run` trigger the existing `@reviewer`/`@security` agents, require one structured JSON block in their output, and the core records the artifact linked to commit/tree. The task must be `completed` and its worktree present, clean and at the task commit; otherwise the command refuses with `BLOCKED` instead of reviewing the wrong tree. Missing, stale or malformed evidence blocks the merge.
+5. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes), acceptance-criteria evaluation and post-merge checks on the merged commit.
+6. State uses atomic writes, `flock`, revision fences, JSONL events and `juicer resume` after interruption; full reconciliation remains partial (see [STATUS.md](STATUS.md)).
 
 ### Quick start
 
@@ -159,6 +162,7 @@ EOF
 python3 bin/juicer decompose tasks.json
 python3 bin/juicer status
 python3 bin/juicer run TASK-001        # or: juicer run --jobs 4
+python3 bin/juicer review-run TASK-001 # trigger @reviewer, record structured evidence
 python3 bin/juicer integrate TASK-001
 ```
 
@@ -174,7 +178,11 @@ python3 bin/juicer integrate TASK-001
 | `juicer status` | Mission state, eligibility, next action |
 | `juicer run [TASK-ID] [--jobs N]` | Execute eligible tasks (parallel or serial, with recorded reason) |
 | `juicer retry TASK-ID` | Re-run a failed task (new attempt, same identity) |
-| `juicer integrate TASK-ID` | Gate + explicit merge + post-merge checks |
+| `juicer review TASK-ID --commit --tree-hash` | Record a structured review artifact (manual or external agent) |
+| `juicer security TASK-ID --commit --tree-hash` | Record a structured security artifact |
+| `juicer review-run TASK-ID` | Trigger the existing `@reviewer`, record evidence from its JSON output |
+| `juicer security-run TASK-ID` | Trigger the existing `@security`, record evidence from its JSON output |
+| `juicer integrate TASK-ID` | Gates + criteria + explicit merge + post-merge checks |
 | `juicer checkpoint` | Force a consistency checkpoint |
 | `juicer resume` | Recover interrupted tasks after a crash/restart |
 | `juicer events` | Tail the append-only JSONL event log |
@@ -187,7 +195,7 @@ python3 bin/juicer integrate TASK-001
 - **Audit trail**: `.juicer/evidence/` (sessions, diffs, check logs), `.juicer/executions/`, `.juicer/events.jsonl`.
 - **Honest statuses**: `PASS / FAIL / BLOCKED / NOT RUN` — a result that could not be obtained is never a pass.
 
-Implementation plan, phases, gates and backlog mapping: see [docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md](docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md). Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
+Implementation plan, phases, gates and backlog mapping: see [docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md](docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md). Internal harness contract: see [docs/HARNESS_CONTRACT.md](docs/HARNESS_CONTRACT.md). Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
 
 ### Option 3: Symlink (local development)
 

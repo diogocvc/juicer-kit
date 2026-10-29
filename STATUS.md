@@ -8,72 +8,94 @@ promessas de recursos futuros. Lacunas planejadas estão mapeadas em
 ## Versão
 
 - Kit: **4.0.0** (core Python + kit Markdown 3.x preservado)
-- Harness alvo único: **OpenCode** — versão validada no ambiente: **1.19.4**
-- Data desta avaliação: 2026-10-23
+- Harness alvo único: **OpenCode 2.x/V2** — versão medida no ambiente:
+  **opencode v2.1.4** (`~/.opencode/bin/opencode`)
+- Data desta avaliação: 2026-10-29
 
-## Diferença entre referência e ambiente
+## Alvo e evidência
 
-O documento estrutural v2.0 define "OpenCode 2.0 / documentação V2" como alvo.
-O binário efetivamente instalado é o **1.19.4** (linha V1), localizado no
-registry do Zed, fora do `PATH`. Conforme a regra acordada, apenas a camada de
-integração foi adaptada; o modelo conceitual (missões, tarefas, gates,
-evidência) não depende da versão.
+O MVP usa **OpenCode 2.0/V2** (decisão D5 revisada). A tabela abaixo separa
+capacidade **medida** (probe ou smoke com o binário 2.1.4) de lacuna
+planejada. O binário V1 1.19.4 ainda presente no registry do Zed não é alvo do
+MVP; `discover` o marca como `degraded` se for o único encontrado.
 
 | Capacidade | Status | Como foi validado |
 | --- | --- | --- |
-| Detecção de binário (`OPENCODE_BIN` → PATH → registry Zed) | **supported** | `juicer discover` retornou 1.19.4 |
-| Execução `opencode run --format json --agent <x>` | **supported** | smoke real: 3 tarefas executadas |
-| Captura de session id + exit code + eventos JSON | **supported** | smoke real + testes com fake binário |
-| Isolamento por branch/worktree git | **supported** | smoke real: 3 worktrees, diff isolado |
-| Paralelismo local real (2 tarefas independentes) | **supported** | smoke real `--jobs 2` + teste de wall-clock |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 64 testes + smoke real (FAIL bloqueou integração) |
-| Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | testes `test_gates.py` |
-| Merge explícito + conflito detectado (sem sobrescrita) | **supported** | testes `test_preservation.py` |
-| Checks pós-integração no commit mergeado | **supported** | smoke real + teste `test_integrate.py` |
-| Retomada após reinício (checkpoint/resume) | **partial** | `resume` recupera `in_progress`, mas ainda não reconcilia execution/worktree (TASK-004, TASK-008) |
-| Proteção de mudanças pré-existentes (árvore suja) | **supported** | teste `test_preservation.py` |
-| Aprovação humana separada do gate técnico | **partial** | `--approve` separa o gate humano, mas não registra aprovador/commit/tree (TASK-006) |
-| Critérios de aceitação verificados pelo core | **unsupported** | critérios são apenas injetados no prompt (TASK-005) |
-| Revisão e segurança obrigatórias no core | **unsupported** | agentes existem, mas o core ainda não os aciona (TASK-005) |
-| `--dir` obrigatório para worktrees | **limitação conhecida** | o OpenCode 1.19.4 sobe a árvore até o checkout principal sem `--dir`; o adapter sempre passa `--dir` |
-| Permissões headless | **experimental** | o config global do usuário tem `allow *`; sem permissões restritivas validadas em headless |
-| Worktrees nativos do OpenCode V2 | **unsupported (1.19.4)** | usado fallback git CLI (declarado no adapter) |
+| Detecção de binário (OPENCODE_BIN → PATH → ~/.opencode/bin → Zed) | **supported (medida)** | `juicer discover` retornou v2.1.4; V2 preferido entre candidatos |
+| Distinção V2 × V1 no probe de versão | **supported (medida)** | `caps.v2=true` em 2.1.4; V1 fake → `degraded` |
+| Contrato interno `discover`/`run` | **supported (medida)** | `tests/test_harness_contract.py` + `docs/HARNESS_CONTRACT.md` |
+| Execução `opencode run --format json --agent <x> --standalone` | **supported (medida)** | smoke real V2 + testes com binário falso |
+| Workspace via CWD do processo (sem `--dir`) | **supported (medida)** | smoke real leu arquivo do workdir temporário |
+| `--standalone` (servidor privado por execução) | **supported (medida)** | smoke real V2; padrão do adaptador |
+| Captura de session id + exit code + eventos NDJSON | **supported (medida)** | smoke real + `parse_run_output` (formato `part` V2) |
+| Sessão via `--session` / `--continue` | **partial** | flags detectadas e `--session` repassada; retomada real não exercitada |
+| `--auto` desativado por padrão | **supported (medida)** | testes de contrato |
+| Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
+| Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
+| Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 83 testes padrão + smoke |
+| Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
+| Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
+| Checks pós-integração no commit mergeado | **supported** | testes de integrate |
+| Retomada após reinício (checkpoint/resume) | **supported (medida)** | `resume` reconcilia execução e worktree; interrompido+worktree → `blocked`; sem worktree → `failed`; execução terminal alinha a tarefa |
+| Transições TASK/EXECUTION validadas em todo update | **supported (medida)** | `check_transition` em `_update_task`/`_update_execution`; `tests/test_transitions.py` |
+| `blocked`/`failed` retomáveis com histórico | **supported (medida)** | `retry_task` + `attempt_history` |
+| Falha pós-merge → `blocked` (nunca `completed`/`done`) | **supported (medida)** | `test_post_merge_failure_*` |
+| Proteção de mudanças pré-existentes | **supported** | `test_preservation.py` |
+| Aprovação humana separada do gate técnico | **partial** | `--approve` separa o gate; registro aprovador/commit/tree em TASK-006 |
+| Critérios de aceitação verificados pelo core | **supported (medida)** | `check:<id>`, `review`, `security`, `human`; evidência vinculada a commit/tree; auditoria por critério; `tests/test_criteria.py` |
+| Revisão e segurança obrigatórias no core | **supported (medida)** | `required_gates` + artefatos estruturados + gate; `tests/test_integrate.py`, `tests/test_evidence.py` |
+| Acionamento de `@reviewer`/`@security` pelo core | **supported (medido: review-run)** | `review-run` executou o `@reviewer` real (V2.1.4) e retornou JSON estrito; NDJSON capturado reproduzido até `done`. `security-run`: mesmo caminho de código, coberto por testes (chamada ao vivo bloqueada por quota do provider) |
+| Fail-fast de severidade/estrutura das evidências | **supported (medida)** | `validate_findings` rejeita severidade/descrição inválidas antes de gravar |
+| `--dir` na CLI V2 | **ausente (medida)** | `run --help` 2.1.4 não tem `--dir`; isolamento via CWD |
+| Worktrees nativos do OpenCode V2 | **documental / não usado** | API existe; MVP mantém git CLI |
 | Preview/URL de preview (A15) | **unsupported** | fora do fluxo vertical MVP |
 | Deploy/release (A16–A18) | **fora do MVP** | conforme escopo aprovado |
-| Segundo harness, coordenação distribuída, event sourcing | **fora do MVP** | conforme escopo aprovado |
+| Segundo harness, coordenação distribuída | **fora do MVP** | conforme escopo aprovado |
+| Compatibilidade V1 como alvo | **não prometida** | D5/D9; V1 degradado se detectado |
 
 ## Limitações ambientais
 
-1. **OpenCode fora do PATH**: o binário descoberto está em
-   `~/Library/Application Support/Zed/external_agents/registry/opencode/*/opencode`.
-   Em outros ambientes, defina `OPENCODE_BIN` ou instale no PATH.
+1. **Binário V2**: instalado via `opencode upgrade --major` em
+   `~/.opencode/bin/opencode` (v2.1.4). Em outros ambientes, defina
+   `OPENCODE_BIN` ou instale no PATH.
 2. **Custo de modelo**: cada `juicer run` faz uma chamada real de modelo via
-   `opencode run`. O tempo e o custo dependem do provider configurado.
+   `opencode run --standalone`. O tempo e o custo dependem do provider.
 3. **Escopo local**: locks `flock` + fence de revisão cobrem concorrência
-   multi-processo **local**. Não há coordenação entre máquinas (fora do MVP,
-   conforme decisão aprovada).
-4. **Python**: o core usa apenas a biblioteca padrão (validado com Python
-   3.8.5); os testes usam pytest via `uv tool run pytest`.
+   multi-processo **local**. `--standalone` isola sessões por processo; não há
+   coordenação entre máquinas.
+4. **Python**: o core usa apenas a biblioteca padrão; testes usam pytest via
+   `uv tool run pytest`.
 5. **`completed` ≠ `done`**: uma tarefa só fica `done` após gates técnicos
-   PASS, integração explícita e checks pós-merge PASS (invariante B.12/B.13).
+   PASS, integração explícita e checks pós-merge PASS.
+6. **Permissões V2 ≠ gates**: política `permissions[]` do OpenCode é barreira
+   adicional; escopo, evidência e aprovação permanecem no core.
 
 ## Comandos de verificação executados
 
 ```
+export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
-uv tool run pytest -q tests/                     # 64 passed
-# smoke real (repo temporário):
-python3 bin/juicer init
-python3 bin/juicer mission --title ... --objective ...
-python3 bin/juicer decompose tasks.json
-python3 bin/juicer run TASK-001                  # opencode 1.19.4, session ses_..., check PASS
-python3 bin/juicer run --jobs 2                  # 2 tarefas paralelas, worktrees isolados
-python3 bin/juicer integrate TASK-001            # merge + pós-merge PASS
-python3 bin/juicer resume                        # recuperou task interrompida
+uv tool run pytest -q tests/                     # 193 passed, 1 skipped (2026-10-29)
+# smoke real V2 de review-run (2026-10-29): @reviewer executou no binário
+# v2.1.4 e devolveu JSON estrito; o NDJSON real foi reproduzido no caminho de
+# evidência (artefato PASS -> critérios -> done). Nova chamada ao vivo: HTTP
+# 402 (quota do provider), não falha de código.
+JUICER_OPENCODE_SMOKE=1 uv tool run pytest -q tests/test_opencode_smoke.py
+                                                 # 1 passed (V2 real)
+python3 bin/juicer discover                      # opencode v2.1.4; v2=true; status=supported
+# smoke real V2 (2026-10-26):
+# SMOKE-OK-7Q2, exit_code=0, session ses_..., --standalone, sem --dir
 ```
 
 ## Pendências de validação
 
-- Permissões restritivas em headless (hoje depende do config do usuário).
-- Execução com múltiplos workers/processos coordenadores no mesmo projeto.
+- Retomada real de sessão via `--session`/`--continue`.
+- Política de permissões V2 restritiva em headless (`deny`/`ask` em shell e
+  edit).
+- Revalidar paralelismo `--jobs 2` com `--standalone` V2.
+- Smoke real V2 de `review-run`: execução real do `@reviewer` validada
+  (v2.1.4) e NDJSON real reproduzido até `done`; nova chamada ao vivo bloqueada
+  por quota do provider (HTTP 402). `security-run` ao vivo não executado (mesmo
+  caminho de código; coberto por testes).
 - Preview de build/URL (A15) — não implementado no MVP.

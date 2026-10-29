@@ -1,12 +1,16 @@
 # Plano de Implementação — Juicer Kit 4.0
 
-**Status:** aprovado para execução; implementação ainda não iniciada.
+**Status:** aprovado para execução; em execução (TASK-003 com validação V2
+medida no working tree, aguardando revisão/integração).
 
-**Data:** 2026-10-25
+**Data:** 2026-10-25 (revisão de alvo V2: 2026-10-26)
 
-**Decisão de arquitetura:** B — confirmar com ajustes. O MVP usa OpenCode
-1.19.4/V1, com contrato interno mínimo de harness e testes de contrato. V2 é
-uma migração futura, não uma promessa do MVP.
+**Decisão de arquitetura:** B — revisada. O MVP usa **OpenCode 2.0/V2** como
+harness-alvo, com o mesmo contrato interno mínimo de harness (`discover`/`run`)
+e testes de contrato. A decisão anterior de MVP em 1.19.4/V1 com migração V2
+futura está **substituída**. Compatibilidade V1 não é prometida. Binário V2
+medido: `opencode v2.1.4` (2026-10-26); smoke real e capabilities registrados
+em `STATUS.md`.
 
 **Escopo deste documento:** consolidar requisitos, decisões, lacunas, fases,
 critérios de conclusão e tarefas de backlog. Este documento não implementa o
@@ -40,9 +44,10 @@ missão
 
 ### Dentro do MVP
 
-- OpenCode **1.19.4/V1** como harness validado.
+- OpenCode **2.0/V2** como harness validado (alvo único do MVP).
 - Core Python stdlib já existente em `juicer/`.
-- Worktrees git e branches isoladas.
+- Worktrees git e branches isoladas (git CLI do core; worktree nativo V2 só
+  após prova).
 - Estados, transições, critérios de aceitação, gates técnicos e aprovação
   humana separada.
 - Revisão obrigatória para mudanças de código.
@@ -50,25 +55,29 @@ missão
 - Retry, recuperação, conflitos, falha pós-merge e retomada.
 - Backlog Markdown como planejamento e `.juicer/` como estado operacional
   canônico após a importação.
-- Testes unitários, testes de contrato, smoke real V1 e E2E.
+- Testes unitários, testes de contrato, smoke real V2 e E2E V2.
+- Validação documental + real das capabilities V2 usadas pelo core.
 
 ### Fora do MVP
 
-- Adaptador V2 ou declaração de compatibilidade V2.
+- Compatibilidade ou adaptador V1 paralelo; duas integrações simultâneas.
 - Preview de build/URL (A15).
 - Release, deploy e operações (A16–A18).
 - UI, orquestração distribuída, múltiplos projetos e segundo harness.
 - Sincronização bidirecional entre backlog e `.juicer/`.
 - Novos agentes.
+- SDK OpenCode, Code Mode e plugins V2 (somente se uma capability validada
+  exigir; por padrão o adaptador permanece CLI).
 - Implementação de código nesta etapa de planejamento.
 
 ### Critério de sucesso do MVP
 
-O fluxo completo deve funcionar em um repositório temporário com o binário V1
-real, incluindo os caminhos negativos: gate ausente, revisão ausente, segurança
-exigida e não executada, aprovação ausente, alteração fora de escopo, commit
-feito pelo agente, falha pós-merge, interrupção e retry. Nenhum desses caminhos
-pode resultar em `done` silencioso.
+O fluxo completo deve funcionar em um repositório temporário com o binário
+**V2 real**, incluindo os caminhos negativos: gate ausente, revisão ausente,
+segurança exigida e não executada, aprovação ausente, alteração fora de escopo,
+commit feito pelo agente, falha pós-merge, interrupção e retry. Nenhum desses
+caminhos pode resultar em `done` silencioso. A documentação final não declara
+compatibilidade não comprovada (nem V1 nem V2 sem smoke associado).
 
 ## 2. Decisões e premissas
 
@@ -78,15 +87,20 @@ pode resultar em `done` silencioso.
 | D2 | Preview (A15) fica fora do MVP. | A limitação deve ser explícita em `STATUS.md` e no plano. |
 | D3 | Release/deploy A16–A18 ficam fora do MVP. | Nenhuma tarefa do backlog 4.0 deve prometer essas capacidades. |
 | D4 | Aprovação humana é obrigatória conforme risco e política explícita da tarefa. | Aprovação não substitui gates técnicos e deve ser registrada com aprovador, tarefa, commit, tree hash, data e nota. |
-| D5 | O harness alvo do MVP é OpenCode 1.19.4/V1. | O adaptador V1 permanece mínimo e baseado nas necessidades reais do core. V2 não é implementado nem declarado compatível. |
+| D5 | O harness alvo do MVP é **OpenCode 2.0/V2** (revisão de 2026-10-26; substitui a decisão anterior de 1.19.4/V1). | O adaptador é validado e ajustado para a CLI V2 real; capabilities V2 são medidas, não presumidas. Compatibilidade V1 não é prometida nem mantida em paralelo. Enquanto o binário V2 não estiver disponível, qualquer afirmação de compatibilidade permanece documental e não comprovada. |
 | D6 | `TASK-001` e `TASK-002` são preservadas. | Novas tarefas usam `TASK-003` a `TASK-011`, sem renumerar ou reescrever o histórico existente. |
 | D7 | Não criar agentes novos. | A implementação reutiliza `@orchestrator`, `@reviewer`, `@security` e `@tester` já existentes. |
+| D8 | Permissões do OpenCode V2 (allow/ask/deny) são complemento, nunca substituto dos gates, evidências e aprovação do core. | O core continua dono de escopo protegido, verificação, revisão, segurança e aprovação humana, mesmo com política restritiva no harness. |
+| D9 | Integração única com V2; sem duplicar o adaptador V1. | O trabalho V1 não commitado da TASK-003 é preservado e reaproveitado onde justificado (contrato, parsing, testes), mas o entregável final do MVP é o adaptador V2 validado. |
 
 ### Premissas
 
-- O binário OpenCode 1.19.4 continua disponível no registry do Zed, via
-  `OPENCODE_BIN` ou no `PATH`.
-- A suíte atual de 64 testes permanece verde como linha de base.
+- Um binário OpenCode 2.0/V2 está disponível neste ambiente (medido:
+  `~/.opencode/bin/opencode` = v2.1.4; alternativa via `OPENCODE_BIN`).
+- O binário 1.19.4 ainda presente no registry do Zed não é alvo do MVP; a
+  detecção de versão distingue V2 de V1 e degrada V1.
+- A suíte atual (94 testes padrão + 1 smoke opt-in) permanece verde como linha
+  de base.
 - O core continua em Python stdlib, sem novas dependências obrigatórias.
 - O responsável pela implementação conhece o core e pode trabalhar em uma
   única sessão por tarefa.
@@ -96,16 +110,18 @@ pode resultar em `done` silencioso.
 
 ### Incertezas conhecidas
 
-- O comportamento real de permissões headless do OpenCode 1.19.4 ainda não foi
-  validado com uma política restritiva.
+- Permissões headless da V2 com política restritiva (deny/ask em shell, edit,
+  external_directory) ainda não foram validadas.
 - O formato estruturado de evidência de revisão e segurança precisa ser
   desenhado e testado; texto livre de agente não é prova suficiente.
 - A segurança de paralelismo local precisa ser confirmada antes de habilitar
-  concorrência por padrão.
+  concorrência por padrão; revalidar `--jobs 2` com `--standalone` V2.
 - A importação do backlog pode revelar necessidades de validação de IDs,
   dependências e critérios ainda não cobertas.
-- Não há binário V2 disponível para validar APIs, eventos, permissões ou
-  workspaces nativos.
+- Retomada real de sessão (`--session`/`--continue`) ainda não exercitada.
+- Worktree nativo V2 (API `worktree.create/refresh/remove`) não substitui o
+  git CLI do core sem testes de evidência e recuperação; o MVP mantém git CLI
+  como caminho padrão.
 
 ## 3. Arquitetura e fonte de verdade
 
@@ -145,7 +161,9 @@ concluída.
 - `juicer/gates.py`: semântica `PASS/FAIL/BLOCKED/NOT RUN`.
 - `juicer/orchestrator.py`: fluxo missão -> execução -> integração -> retomada.
 - `juicer/gitops.py`: worktrees, branches, merge e conflitos.
-- `juicer/harness/opencode.py`: adaptador V1.
+- `juicer/harness/contract.py`: contrato interno `discover`/`run`.
+- `juicer/harness/opencode.py`: adaptador OpenCode V2 (CWD + `--standalone`;
+  sem `--dir`).
 - `juicer/cli.py`: interface de linha de comando.
 
 ## 4. Modelo de estados e transições
@@ -354,7 +372,7 @@ vinculado ao commit correto.
 - O estado `completed` não pode permanecer após falha pós-merge.
 - Checkpoint deve registrar o próximo passo e permitir auditoria.
 
-## 11. Contrato do harness V1 e preparação para V2
+## 11. Contrato do harness e alvo V2
 
 ### Contrato interno mínimo
 
@@ -368,34 +386,49 @@ suportado, sessão. `result` deve conter: `ok`, `status`, `exit_code`,
 `session_id`, `output`, `detail` e dados de erro.
 
 Capabilities devem ser explícitas e comprovadas. O core não deve depender de
-nomes internos de eventos, SDK ou API do OpenCode.
+nomes internos de eventos, SDK ou API do OpenCode. O contrato detalhado está em
+`docs/HARNESS_CONTRACT.md`. O contrato é agnóstico de versão; a versão entra
+apenas no adaptador e no probe de capabilities.
 
-### Capacidades V1 no ambiente
+### Capacidades V2 (medidas em 2.1.4 em 2026-10-26)
+
+A tabela abaixo registra o que foi **medido** com o binário local e o que
+permanece documental. Nada documental pode ser anunciado como suportado sem
+teste associado.
 
 | Capacidade | Situação | Observação |
 | --- | --- | --- |
-| `--version` | validada | binário 1.19.4 descoberto. |
-| `run --format json` | disponível na CLI | usada pelo adaptador atual. |
-| `--agent` | disponível na CLI | usada pelo adaptador atual. |
-| `--dir` | disponível na CLI | necessária para fixar o worktree. |
-| `--session` / `--continue` | disponível na CLI | ainda não exposta pelo adaptador. |
-| `serve` / `--attach` | disponível na CLI | ainda não usada pelo adaptador. |
-| Permissões granulares por ferramenta | não comprovadas | `--auto` existe, mas não deve ser padrão. |
-| Cancelamento via API | não disponível no adaptador | timeout/processo são o limite atual. |
-| Eventos completos de API | não usados | o adaptador lê JSONL de `run`. |
-| Worktrees nativos V2 | indisponível no V1 | fallback é git CLI. |
-| Compatibilidade V2 | não validada | não declarar suporte. |
+| Instalação/binary V2 | **medida** | `opencode v2.1.4` em `~/.opencode/bin/opencode` via `upgrade --major`. |
+| `--version` | medida | Probe distingue 2.x (`v2: true`). |
+| `run --format json` | medida | NDJSON com `sessionID` e `part`. |
+| `--agent` | medida | Smoke e testes. |
+| `--dir` | **ausente na V2** | `run --help` 2.1.4 não tem a flag; workspace fixado pelo CWD do subprocesso. |
+| `--session` / `--continue` | flags medidas | Retomada real ainda não exercitada (`session_resume=false`). |
+| `--standalone` | medida | Servidor privado por execução; padrão do adaptador. |
+| `serve` | medida | `serve --help` responde. |
+| Permissões estruturadas | documental | `permissions[]` allow/ask/deny; política restritiva headless não medida. |
+| Cancelamento via API | não medida | timeout/processo é o limite atual. |
+| Eventos/sessões | medida | NDJSON de `run`; parsing V2 no adaptador. |
+| Worktree nativo V2 | documental (não usado) | MVP mantém git CLI do core. |
+| SDK / Code Mode / plugins | fora do escopo padrão | Só entram se capability medida exigir. |
+| Compatibilidade V1 | **não prometida** | D5/D9: alvo único V2; binário V1 → `degraded`. |
 
 ### Regras
 
-- O adaptador V1 permanece mínimo e CLI-based.
-- Não adicionar SDK, eventos, permissões ou workspaces V2 ao MVP.
-- Não usar `--auto` por padrão.
+- O adaptador implementa o mesmo contrato; a versão detectada alimenta
+  capabilities e o `STATUS.md`.
+- Instalação ou seleção do binário V2 é passo bloqueante da validação; sem
+  binário V2, `discover` não pode reportar suporte V2.
+- `--auto` não é usado por padrão; permissões restritivas devem ser testadas
+  sem auto-approve.
+- Permissões do OpenCode são barreira adicional de execução; escopo protegido,
+  evidência, gates e aprovação continuam no core.
 - Testes de contrato usam binário falso e, quando o ambiente permitir, smoke
-  real.
+  real V2.
 - O smoke real deve ser isolado e não depender de estado do projeto.
-- V2 futuro deve implementar o mesmo contrato, com capabilities e testes
-  próprios, sem exigir mudança no core.
+- Não manter duas integrações ativas: o código V1 reaproveitado (contrato,
+  parsing, testes) é refactorado para o alvo V2, não duplicado.
+- Nenhuma declaração de compatibilidade V2 sem smoke e capabilities medidos.
 
 ## 12. Agentes, comandos e documentação
 
@@ -410,18 +443,22 @@ nomes internos de eventos, SDK ou API do OpenCode.
 - `AGENTS.md` deve refletir 4.0, a ordem dos gates e a separação
   backlog/`.juicer`.
 - `README.md` deve apontar para este plano e para as limitações reais.
-- `STATUS.md` deve separar capacidade validada de lacuna planejada, sem
-  declarar V2.
+- `STATUS.md` deve separar capacidade medida de lacuna planejada; com o alvo
+  V2, deve registrar claramente o que foi medido com binário V2 e o que
+  permanece apenas documental ou bloqueado.
+- Referências a “OpenCode 1.19.4/V1” em docs e comentários do adaptador devem
+  ser atualizadas na execução de TASK-003/TASK-010 para o alvo V2, sem apagar
+  o histórico de medições já realizadas.
 
 ## Apêndice A — Fases, marcos e critérios de conclusão
 
 | Fase | Tarefas | Critério de conclusão |
 | --- | --- | --- |
-| 1. Baseline e contrato | TASK-003 | Contrato documentado, adaptador V1 mínimo, capabilities comprovadas, testes de contrato e smoke real registrados. Nenhuma promessa V2. |
+| 1. Baseline e contrato V2 | TASK-003 | Binário V2 provisionado e detectado; contrato documentado; adaptador alinhado à CLI V2; capabilities V2 medidas; testes de contrato e smoke real V2 registrados; nenhuma promessa sem evidência. |
 | 2. Integridade do core | TASK-004, TASK-005, TASK-006 | Transições validadas; critérios e gates efetivos; revisão/segurança com evidência; aprovação vinculada a commit/tree. |
-| 3. Isolamento e recuperação | TASK-007, TASK-008 | Escopo completo, caminhos protegidos, commits do agente detectados; retry/resume e pós-merge sem `done` falso. |
-| 4. Integração e documentação | TASK-009, TASK-010 | Importação validada e unidirecional; agentes, comandos, `AGENTS.md`, README e STATUS alinhados. |
-| 5. Aceitação E2E | TASK-011 | Fluxo completo V1 e caminhos negativos comprovados em repositório temporário; suíte e documentação finais. |
+| 3. Isolamento e recuperação | TASK-007, TASK-008 | Escopo completo, caminhos protegidos, commits do agente detectados; permissões V2 não confundidas com gates do core; retry/resume e pós-merge sem `done` falso. |
+| 4. Integração e documentação | TASK-009, TASK-010 | Importação validada e unidirecional; agentes, comandos, `AGENTS.md`, README e STATUS alinhados ao alvo V2. |
+| 5. Aceitação E2E | TASK-011 | Fluxo completo V2 e caminhos negativos comprovados em repositório temporário; suíte e documentação finais; sem declaração de compatibilidade não medida. |
 
 ## Apêndice B — Estimativa, premissas e incertezas
 
@@ -430,35 +467,58 @@ nomes internos de eventos, SDK ou API do OpenCode.
 - 1 dev-day = 6 horas focadas.
 - Um desenvolvedor familiarizado com o core.
 - Código, testes e documentação incluídos; deploy e operação não incluídos.
-- OpenCode 1.19.4 disponível e suíte atual verde.
+- Suíte atual verde como baseline.
 - Sem novas dependências obrigatórias.
-- Sem UI, release, deploy, coordenação distribuída ou segundo harness.
+- Sem UI, release, deploy, coordenação distribuída, segundo harness ou
+  integração V1 paralela.
 - Latência/custo de modelo e espera por revisão humana não contam como esforço
   de engenharia.
+- Provisionamento do binário V2 é esforço real e está embutido em TASK-003.
 
-### Estimativa base
+### Estimativa base (preliminar, revisar após validar V2)
 
-| Tarefa | Esforço |
-| --- | --- |
-| TASK-003 | 1,5–2 dev-days |
-| TASK-004 | 2–2,5 dev-days |
-| TASK-005 | 3–4 dev-days |
-| TASK-006 | 1–1,5 dev-day |
-| TASK-007 | 2–3 dev-days |
-| TASK-008 | 2–3 dev-days |
-| TASK-009 | 1,5–2 dev-days |
-| TASK-010 | 1–1,5 dev-day |
-| TASK-011 | 2–3 dev-days |
-| **Total** | **16–23 dev-days** |
+| Tarefa | Esforço | Nota de impacto V2 |
+| --- | --- | --- |
+| TASK-003 | 2–3,5 dev-days | Provisionar V2; revalidar capabilities; adaptar adaptador/smoke. Contrato e testes V1 existentes são candidatos a reaproveitamento, **não** progresso confirmado. |
+| TASK-004 | 2–2,5 dev-days | Core agnóstico; impacto V2 baixo. |
+| TASK-005 | 3–4 dev-days | Core agnóstico; impacto V2 baixo. |
+| TASK-006 | 1–1,5 dev-day | Core agnóstico; impacto V2 baixo. |
+| TASK-007 | 2–3 dev-days | Adicionar distinção permissões V2 vs escopo/gates do core (D8). |
+| TASK-008 | 2–3 dev-days | Core agnóstico; impacto V2 baixo. |
+| TASK-009 | 1,5–2 dev-days | Core agnóstico; impacto V2 baixo. |
+| TASK-010 | 1–1,5 dev-day | Docs/agentes alinhados ao alvo V2. |
+| TASK-011 | 2,5–3,5 dev-days | E2E com binário V2 real; depende de smoke V2 da TASK-003. |
+| **Total preliminar** | **17–27 dev-days** | Faixa ampla; incerteza alta até medir V2. |
 
-A faixa é uma estimativa de planejamento, não um compromisso. O limite superior
-inclui rodadas de correção e validação; o inferior assume caminho sem
-redesenho.
+**Estimativa revisada de referência: 18–28 dev-days (preliminar, incerteza
+alta).** A faixa anterior de 16–23 dev-days (base V1) **não** é
+automaticamente reutilizável: o alvo mudou e o binário V2 ainda não foi medido.
+Revise a faixa assim que a TASK-003 concluir o smoke real V2 e registrar as
+capabilities medidas.
+
+Trabalho já realizado (contrato, testes, refatoração do adaptador, STATUS
+parcial) é **candidato a reaproveitamento**; a fração estimada de ~60–70% da
+TASK-003 é **preliminar e não confirmada** até diff e execução de testes após o
+alvo V2. Não contabilizar como progresso concluído sem evidência.
+
+### Decomposição do impacto
+
+| Categoria | Trabalho | Esforço estimado |
+| --- | --- | --- |
+| Reaproveitável (contrato, parsing, testes de contrato, estrutura do adaptador) | já no working tree | 0d novo, se preservado |
+| Adaptar/smoke V2 + provisioning | TASK-003 restante | 2–3,5d |
+| Retrabalho por incompatibilidade V2 | desconhecido até smoke | 0–2d |
+| Core 004–009 (baixo impacto de versão) | manter | 11,5–16d |
+| Docs V2 + E2E V2 | TASK-010, TASK-011 | 3,5–5d |
 
 ### Incertezas que podem elevar o esforço
 
+- Binário V2 indisponível ou incompatível com o ambiente de instalação.
+- Flags documentadas (`--dir`, `--session`, `--standalone`) divergirem da
+  ajuda real ou do comportamento headless.
+- Permissões V2 exigirem reformulação do adaptador ou da política de execução.
+- Serviço compartilhado da V2 interferir em worktrees concorrentes.
 - Necessidade de redesenhar o formato de evidência de revisão/segurança.
-- Permissões headless exigirem mudanças no adapter ou na política.
 - Concorrência local revelar corrida em worktrees, locks ou eventos.
 - Importação de backlog exigir migração de schema ou reconciliação explícita.
 - Refatoração de testes existentes para cobrir transições e gates.
@@ -466,51 +526,63 @@ redesenho.
 
 ### Contingência
 
-- Base: **16–23 dev-days**.
-- Com contingência de 25% para riscos acima: **20–29 dev-days**.
-- V2: **4–6 dev-days** adicionais somente depois de binário/documentação
-  executável e testes de capability; não entra no MVP.
-- A estimativa deve ser revista após TASK-003, quando o contrato e as
-  limitações reais estiverem medidos.
+- Base preliminar: **18–28 dev-days**.
+- Com contingência de 30% (incerteza V2 elevada): **~24–36 dev-days**.
+- Revisão obrigatória da estimativa após a conclusão da validação V2 em
+  TASK-003.
+- A estimativa anterior V1 (16–23) fica registrada apenas como referência
+  histórica da decisão substituída.
 
 ## Apêndice C — Riscos e mitigação
 
 | Risco | Impacto | Mitigação |
 | --- | --- | --- |
-| Declarar V2 sem teste | Alto | Capabilities explícitas; V2 fora do MVP; testes de contrato. |
+| Declarar V2 sem smoke/capabilities medidas | Alto | Capabilities explícitas (documental × medida); bloqueio até binário V2; testes de contrato. |
+| Binário V2 indisponível no ambiente | Alto | Provisionamento como passo bloqueante de TASK-003; planejar sem prometer compatibilidade. |
+| Reaproveitar código V1 como se fosse progresso V2 | Médio | Contabilizar só após testes verdes com alvo V2; preservar trabalho sem marcá-lo concluído. |
+| Confundir permissões V2 com gates do core | Alto | D8: permissões são complemento; gates, evidência e aprovação permanecem no core e são testados. |
 | Revisão/segurança subjetivas | Alto | Artefato estruturado, commit/tree, severidade e gate; humano separado. |
-| Permissões headless frouxas | Alto | Não usar `--auto` por padrão; validar política restritiva; documentar limitação. |
+| Permissões headless frouxas | Alto | Não usar `--auto` por padrão; validar política restritiva V2; documentar limitação. |
+| Serviço compartilhado V2 interferir em worktrees | Médio | Validar `--standalone` vs serviço em TASK-003; serial por padrão. |
 | Merge irreversível com falha posterior | Alto | Gate pós-merge; `blocked`; reversão/correção explícita; nunca `done` falso. |
 | Duas fontes de verdade | Médio | Importação validada e unidirecional; `.juicer/` canônico após importar. |
 | Agente commita ou altera caminho protegido | Alto | Diff completo, detecção de HEAD/commit, caminhos protegidos e escopo efetivo. |
 | Retry apaga evidência | Médio | Preservar execução/branch/worktree; nova tentativa separada. |
 | Paralelismo local inseguro | Médio | Serial por padrão; habilitar só com testes de isolamento. |
 | Backlog com IDs duplicados | Médio | Validar IDs, dependências e equivalência antes de importar. |
-| Estimativa otimista | Médio | Revisar após TASK-003; contingência de 25%. |
+| Estimativa otimista pós-troca de alvo | Médio | Faixa 18–28 marcada preliminar; revisar após smoke V2; contingência 30%. |
 
-## Apêndice D — Backlog proposto
+## Apêndice D — Backlog consolidado
 
 | ID | Título | Prioridade | Dependências | Esforço |
 | --- | --- | --- | --- | --- |
-| TASK-003 | Definir contrato do harness e validar OpenCode V1 | P0 | — | 1,5–2d |
+| TASK-003 | Definir contrato do harness e validar OpenCode V2 | P0 | — | 2–3,5d |
 | TASK-004 | Aplicar transições e reconciliar retomada de estado | P0 | TASK-003 | 2–2,5d |
 | TASK-005 | Verificar critérios, gates e evidências de revisão/segurança | P0 | TASK-003, TASK-004 | 3–4d |
 | TASK-006 | Registrar aprovação humana vinculada a commit/tree | P0 | TASK-005 | 1–1,5d |
-| TASK-007 | Reforçar isolamento, escopo e caminhos protegidos | P0 | TASK-003 | 2–3d |
+| TASK-007 | Reforçar isolamento, escopo, caminhos protegidos e fronteira de permissões V2 | P0 | TASK-003 | 2–3d |
 | TASK-008 | Corrigir retry, conflitos, pós-merge e recuperação | P1 | TASK-004, TASK-007 | 2–3d |
 | TASK-009 | Implementar importação unidirecional do backlog | P1 | TASK-004 | 1,5–2d |
-| TASK-010 | Alinhar agentes, comandos e documentação | P1 | TASK-005, TASK-006 | 1–1,5d |
-| TASK-011 | Validar fluxo E2E V1 e aceitação do MVP | P0 | TASK-003 a TASK-010 | 2–3d |
+| TASK-010 | Alinhar agentes, comandos e documentação ao alvo V2 | P1 | TASK-005, TASK-006 | 1–1,5d |
+| TASK-011 | Validar fluxo E2E V2 e aceitação do MVP | P0 | TASK-003 a TASK-010 | 2,5–3,5d |
+
+`TASK-001` e `TASK-002` permanecem no backlog como exemplos preservados (D6)
+e não fazem parte deste mapa de fases.
 
 ## Pendências e observações
 
-- A implementação do MVP não foi iniciada.
-- A compatibilidade V2 não foi validada e não deve ser anunciada.
-- Permissões headless restritivas continuam pendentes de validação.
-- O formato final dos artefatos de revisão/segurança será definido em TASK-005.
+- O alvo do MVP é **OpenCode 2.0/V2** (D5, revisão de 2026-10-26).
+- Binário V2 **provisionado e medido** (`opencode v2.1.4`); smoke real V2
+  passou (2026-10-26). `--dir` não existe na V2; isolamento via CWD +
+  `--standalone`.
+- TASK-003 permanece `In Progress` até integração/revisão humana; critérios
+  de capabilities e smoke V2 foram cumpridos no working tree.
+- Permissões restritivas em headless permanecem pendentes de validação.
+- O formato final dos artefatos de revisão/segurança será definido em
+  TASK-005.
 - `TASK-001` e `TASK-002` são preservadas; não são equivalentes às tarefas
   deste plano.
-- Exemplos de `TASK-003` e `TASK-004` em `docs/GUIDE.md` são ilustrativos e não
-  representam tarefas reais do backlog.
-- O plano deve ser revisado após TASK-003 com as capacidades medidas no
-  ambiente real.
+- A estimativa 18–28 dev-days permanece preliminar; revisar após TASK-003
+  concluir integração e revisão.
+- `STATUS.md` e `docs/HARNESS_CONTRACT.md` foram atualizados com medições
+  V2 (2026-10-26).

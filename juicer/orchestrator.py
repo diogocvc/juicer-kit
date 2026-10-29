@@ -2,24 +2,26 @@
 
 Sequence: mission -> inspect -> decompose -> run (isolated) -> checks ->
 review gate -> explicit integrate -> post-merge checks -> done, with
-checkpoint/resume throughout. Executor and harness are injectable so tests
-run with fakes while production uses the installed OpenCode binary.
+checkpoint/resume throughout. The executor is injectable for tests; production
+uses the installed OpenCode V2 binary through the harness contract.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Callable, List, Optional
 
 from . import checks as checks_mod
+from . import evidence as evidence_mod
 from . import gitops
 from .errors import GateBlockedError, JuicerError, ScopeViolationError, ValidationError
-from .gates import evaluate_gate, latest_by_check_id, require_gate
+from .gates import CHECK_STATUSES, WORST, evaluate_gate, latest_by_check_id, require_gate
 from .graph import detect_cycle, eligible_tasks, topo_waves
 from .model import (
-    new_execution, new_mission, new_task, validate_execution, validate_mission,
-    validate_task,
+    EXECUTION_TRANSITIONS, TASK_TRANSITIONS, check_transition, new_execution,
+    new_mission, new_task, validate_execution, validate_mission, validate_task,
 )
 from .scheduler import RunOutcome, Scheduler
 from .state import (
@@ -37,6 +39,73 @@ DEFAULT_CONFIG = {
         {"id": "tests", "command": ["python3", "-m", "pytest", "-q", "tests"], "required": True}
     ],
 }
+
+# Core-triggered review/security: the agent answers with one fenced JSON block.
+# Prose outside it is ignored; the core validates the structure and records the
+# evidence artifact itself (agents never write evidence directly).
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```",
+                            re.DOTALL | re.IGNORECASE)
+
+_AGENT_JSON_CONTRACT = """Respond with EXACTLY one fenced json block and no other text:
+
+```json
+{{"verdict": "PASS", "findings": [{{"severity": "medium", "description": "...", "file": "...", "line": 0}}], "summary": "..."}}
+```
+
+Rules:
+- "verdict" must be "PASS" or "FAIL".
+- finding "severity" must be one of: critical, high, medium, low.
+- any critical finding means the verdict is FAIL.
+- do not edit files and do not run shell commands.
+- anything outside the json block is ignored and cannot be evidence.
+"""
+
+_REVIEW_AGENT_PROMPT = """You are @reviewer, the existing code review subagent of this project.
+Review the change below for quality, correctness, tests and regressions.
+
+Task: {task_id} — {title}
+Description: {description}
+Commit: {commit}
+Changed files: {files}
+
+Read the changed files in the current workspace before deciding.
+""" + _AGENT_JSON_CONTRACT
+
+_SECURITY_AGENT_PROMPT = """You are @security, the existing security audit subagent of this project.
+Audit the change below for vulnerabilities (OWASP Top 10), secrets, auth, data handling and external integrations.
+
+Task: {task_id} — {title}
+Description: {description}
+Commit: {commit}
+Changed files: {files}
+
+Read the changed files in the current workspace before deciding. Reference OWASP when applicable.
+""" + _AGENT_JSON_CONTRACT
+
+
+def extract_structured_evidence(text: str) -> Optional[dict]:
+    """Extract the structured evidence object from an agent answer.
+
+    Accepts one fenced JSON block (last valid one wins) or a bare JSON object.
+    Returns ``None`` when the output is prose or malformed; prose never becomes
+    evidence.
+    """
+    for raw in reversed(_JSON_FENCE_RE.findall(text or "")):
+        try:
+            doc = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(doc, dict) and "verdict" in doc:
+            return doc
+    stripped = (text or "").strip()
+    if stripped.startswith("{"):
+        try:
+            doc = json.loads(stripped)
+        except ValueError:
+            return None
+        if isinstance(doc, dict) and "verdict" in doc:
+            return doc
+    return None
 
 
 class Juicer:
@@ -226,7 +295,14 @@ class Juicer:
         with state_lock(self.jdir, "tasks"):
             def wrapped(cur):
                 before = dict(cur)
+                before_status = cur.get("status")
                 mutator(cur)
+                after_status = cur.get("status")
+                if after_status != before_status:
+                    check_transition("task", before_status, after_status,
+                                     TASK_TRANSITIONS)
+                # Keep the pre-mutation revision so fenced_update bumps once
+                # under the lock (single-writer local model).
                 cur["revision"] = before["revision"]
             doc = fenced_update(path, wrapped)
         validate_task(doc)
@@ -285,8 +361,19 @@ class Juicer:
             return self._executor
         from .harness import opencode as oc
 
+        harness = oc.OpenCodeHarness()
+
         def run(prompt, cwd, agent, timeout):
-            return oc.execute(prompt, cwd, agent=agent, timeout=timeout)
+            request = oc.ExecutionRequest(
+                prompt=prompt, cwd=Path(cwd), agent=agent, timeout=timeout,
+            )
+            result = harness.run(request)
+            data = result.to_dict()
+            # V2 returns an NDJSON event stream; expose the assistant-visible
+            # text separately so evidence parsing never has to unescape events.
+            parsed = oc.parse_run_output(result.output or "")
+            data["agent_output"] = parsed.get("text") or ""
+            return data
         return run
 
     def run_task(self, task_id: str, parallel: bool = False) -> RunOutcome:
@@ -406,7 +493,14 @@ class Juicer:
     def _update_execution(self, exec_id: str, mutator) -> dict:
         path = self.executions_dir / ("%s.json" % exec_id)
         with state_lock(self.jdir, "executions"):
-            return fenced_update(path, mutator)
+            def wrapped(cur):
+                before_status = cur.get("status")
+                mutator(cur)
+                after_status = cur.get("status")
+                if after_status != before_status:
+                    check_transition("execution", before_status, after_status,
+                                     EXECUTION_TRANSITIONS)
+            return fenced_update(path, wrapped)
 
     def load_execution(self, exec_id: str) -> dict:
         doc = read_json(self.executions_dir / ("%s.json" % exec_id), default=None)
@@ -419,9 +513,22 @@ class Juicer:
         if not paths:
             return
         import fnmatch
+
+        def matches(path: str, pattern: str) -> bool:
+            # Exact glob match first.
+            if fnmatch.fnmatch(path, pattern):
+                return True
+            # Directory pattern ("src" or "src/") matches only inside that
+            # directory: the path itself or a path under "<dir>/".
+            # M-3: prefix must respect path boundaries so "src/" never
+            # matches "srcx/evil.py".
+            base = pattern.rstrip("/")
+            if base and (path == base or path.startswith(base + "/")):
+                return True
+            return False
+
         for f in changed_files:
-            if not any(fnmatch.fnmatch(f, pat) or f.startswith(pat.rstrip("*").rstrip("/"))
-                       for pat in paths):
+            if not any(matches(f, pat) for pat in paths):
                 raise ScopeViolationError(
                     "task %s changed file outside scope: %s (scope: %s)"
                     % (task["id"], f, paths))
@@ -448,45 +555,127 @@ class Juicer:
         return "\n".join(lines)
 
     def retry_task(self, task_id: str) -> dict:
+        """Explicit retry: failed or blocked -> ready, preserving history."""
         task = self.load_task(task_id)
-        if task["status"] != "failed":
-            raise JuicerError("only failed tasks can be retried (task is %s)" % task["status"])
-        doc = self._update_task(task_id, lambda t: t.update(status="ready"))
-        self._event("task_retried", task_id=task_id)
+        if task["status"] not in ("failed", "blocked"):
+            raise JuicerError(
+                "only failed or blocked tasks can be retried (task is %s)"
+                % task["status"])
+        history = list(task.get("attempt_history") or [])
+        history.append({
+            "at": utc_now(),
+            "from_status": task["status"],
+            "execution_id": task.get("current_execution_id"),
+            "blocked_reason": task.get("blocked_reason"),
+            "action": "retry",
+        })
+        prior_status = task["status"]
+        doc = self._update_task(task_id, lambda t: t.update(
+            status="ready",
+            attempt_history=history,
+            blocked_reason=None,
+            current_execution_id=None,
+        ))
+        self._event("task_retried", task_id=task_id,
+                    data={"from": prior_status, "history_len": len(history)},
+                    outcome="ready")
         return doc
 
     # ---------- integration ----------
 
     def integrate(self, task_id: str, approve: bool = False,
                   allow_dirty: bool = False) -> dict:
-        """Review + gate + explicit merge + post-merge checks."""
+        """Review + multi-gate + explicit merge + post-merge checks.
+
+        Mandatory gate order (canonical): verification -> review -> security
+        (when required) -> approval. NOT RUN never allows merge.
+        """
         task = self.load_task(task_id)
         if task["status"] != "completed":
             raise GateBlockedError("task %s is %s; only completed tasks integrate"
                                    % (task_id, task["status"]))
         result = task.get("result") or {}
         commit = result.get("commit")
-        all_results = self._load_check_results(task_id)
-        latest = latest_by_check_id(
-            [r for r in all_results if r.get("phase") == "pre_merge"])
-        required_ids = self._required_check_ids(task)
-        required = [latest.get(cid, {"check_id": cid, "status": "NOT RUN"})
-                    for cid in required_ids]
-        gate = evaluate_gate(required, commit=commit)
-        require_gate(gate["status"], "integration of %s" % task_id)
+        branch = result.get("branch")
+        if not commit or not branch:
+            # M-1: fail cleanly instead of crashing later in merge/parsing.
+            raise GateBlockedError(
+                "task %s has no commit/branch in result (result=%s); "
+                "re-run the task or restore the execution result before "
+                "integrating" % (task_id, sorted(result)), gate_status="BLOCKED")
+        tree_hash = gitops.tree_hash(self.root, commit)
 
+        # --- multi-gate evaluation (pre-merge, canonical order) ---
+        required_gates = self._required_gates(task, result)
+        gate_results = []
+        try:
+            for gate_name in self.CANONICAL_GATE_ORDER:
+                if gate_name not in required_gates:
+                    continue
+                if gate_name == "verification":
+                    all_results = self._load_check_results(task_id)
+                    latest = latest_by_check_id(
+                        [r for r in all_results if r.get("phase") == "pre_merge"])
+                    required_ids = self._required_check_ids(task)
+                    required = [latest.get(cid, {"check_id": cid, "status": "NOT RUN"})
+                                for cid in required_ids]
+                    vgate = evaluate_gate(required, commit=commit)
+                    gate_results.append(("verification", vgate["status"],
+                                         vgate["details"]))
+                    require_gate(vgate["status"], "verification gate for %s" % task_id)
+                elif gate_name == "review":
+                    rgate, rdetails = self._evaluate_review_gate(task, commit, tree_hash)
+                    gate_results.append(("review", rgate, rdetails))
+                    require_gate(rgate, "review gate for %s" % task_id)
+                elif gate_name == "security":
+                    sgate, sdetails = self._evaluate_security_gate(task, commit, tree_hash)
+                    gate_results.append(("security", sgate, sdetails))
+                    require_gate(sgate, "security gate for %s" % task_id)
+                elif gate_name == "approval":
+                    gate_results.append(("approval", "PASS",
+                                         ["human approval recorded" if approve
+                                          else "human approval not required"]))
+            # Acceptance criteria are evaluated last: review/security criteria
+            # need the artifacts recorded for this commit. A criterion without
+            # valid evidence blocks the merge (plan §6).
+            criteria = self._evaluate_criteria(task, commit, tree_hash, approve)
+            cgate = self._criteria_status(criteria)
+            cdetails = ["%s (%s): %s" % (c["id"], c["verification"], c["status"])
+                        for c in criteria] or ["no acceptance criteria declared"]
+            gate_results.append(("acceptance_criteria", cgate, cdetails))
+            self._event("criteria_evaluated", task_id=task_id,
+                        data={"status": cgate, "criteria": criteria},
+                        outcome=cgate)
+            require_gate(cgate, "acceptance criteria for %s" % task_id)
+        except GateBlockedError as exc:
+            if exc.gate_status == "FAIL":
+                # CR-2 invariant: `completed` is never a trap state. A FAIL
+                # verdict requires rework, so the task goes to `blocked` with
+                # an explicit reason and stays retriable (blocked -> ready).
+                reason = "pre-merge gate FAIL during integrate: %s" % exc
+                self._update_task(task_id, lambda t: t.update(
+                    status="blocked", blocked_reason=reason))
+                self._event("integration_gate_failed", task_id=task_id,
+                            data={"detail": reason, "gate_status": "FAIL"},
+                            outcome="FAIL")
+            # BLOCKED/NOT RUN leave the task `completed` on purpose: the
+            # missing evidence or approval can be supplied and integrate
+            # retried without re-running the task.
+            raise
+
+        # Human approval is a separate gate, always enforced when the policy
+        # requires it, independent of required_gates.
         policy = task.get("approval_policy") or {}
         if policy.get("human_approval_required") and not approve:
             raise GateBlockedError(
-                "human approval required for %s; re-run with --approve after review"
-                % task_id, gate_status="BLOCKED")
+                "human approval required for %s; re-run with --approve after "
+                "review" % task_id, gate_status="BLOCKED")
 
         if gitops.is_dirty(self.root, exclude=(".juicer",)) and not allow_dirty:
             raise GateBlockedError(
                 "integration target has uncommitted changes; commit/stash first "
                 "(never overwrite pre-existing changes)", gate_status="BLOCKED")
 
-        branch = result.get("branch")
         ok, detail = gitops.merge_no_ff(self.root, branch)
         if not ok:
             self._update_task(task_id, lambda t: t.update(status="blocked"))
@@ -497,6 +686,7 @@ class Juicer:
         merged_commit = gitops.head_commit(self.root)
         post = self._run_task_checks(task, self.root, merged_commit,
                                      phase="post_merge")
+        required_ids = self._required_check_ids(task)
         post_gate = evaluate_gate(
             [latest_by_check_id(post).get(cid, {"check_id": cid, "status": "NOT RUN"})
              for cid in required_ids], commit=merged_commit)
@@ -504,21 +694,388 @@ class Juicer:
             "task_id": task_id,
             "branch": branch,
             "merged_commit": merged_commit,
-            "pre_merge_gate": gate,
+            "pre_merge_gate": {"status": "PASS", "details": gate_results},
             "post_merge_gate": post_gate,
-            "approved": bool(approve or not policy.get("human_approval_required")),
+            "acceptance_criteria": criteria,
+            "approved": bool(approve or not (task.get("approval_policy") or {}).get(
+                "human_approval_required")),
             "integrated_at": utc_now(),
         }
         write_json(self.jdir / ("integration-%s.json" % task_id), integration)
         if post_gate["status"] != "PASS":
+            # Invariant: post-merge failure never leaves completed/done.
+            self._update_task(task_id, lambda t: t.update(
+                status="blocked",
+                blocked_reason="post-merge checks %s on %s"
+                               % (post_gate["status"], merged_commit)))
             self._event("integration_post_failed", task_id=task_id,
                         data=integration, outcome="FAIL")
             raise GateBlockedError(
-                "post-merge checks %s on %s; investigate before proceeding"
-                % (post_gate["status"], merged_commit), gate_status=post_gate["status"])
+                "post-merge checks %s on %s; task blocked — investigate before "
+                "retrying" % (post_gate["status"], merged_commit),
+                gate_status=post_gate["status"])
         self._update_task(task_id, lambda t: t.update(status="done"))
         self._event("task_integrated", task_id=task_id, data=integration, outcome="PASS")
         return integration
+
+    # ---------- multi-gates ----------
+
+    CANONICAL_GATE_ORDER = ("verification", "review", "security", "approval")
+
+    def _required_gates(self, task: dict, result: dict) -> List[str]:
+        """Gates that must PASS before merge.
+
+        Declared gates come from ``approval_policy.required_gates``. The core
+        applies exactly what is declared; it does not add implicit gates.
+        Implicit requirements (review for code changes, security for high risk)
+        are policy decisions expressed through ``required_gates`` and
+        ``risk_level``.
+        """
+        policy = task.get("approval_policy") or {}
+        gates = list(policy.get("required_gates") or ["verification"])
+        # Deterministic order; duplicates removed while preserving order.
+        seen = set()
+        ordered = []
+        for name in self.CANONICAL_GATE_ORDER:
+            if name in gates and name not in seen:
+                ordered.append(name)
+                seen.add(name)
+        for name in gates:
+            if name not in seen:
+                ordered.append(name)
+                seen.add(name)
+        return ordered
+
+    def _evaluate_review_gate(self, task: dict, commit: Optional[str],
+                              tree_hash: Optional[str]) -> tuple:
+        """Evaluate the review gate for a task/commit.
+
+        Returns (status, details). If review is not declared in required_gates,
+        returns PASS. Missing/malformed artifact -> BLOCKED; stale artifact
+        (different commit/tree) -> NOT RUN.
+        """
+        policy = task.get("approval_policy") or {}
+        if "review" not in (policy.get("required_gates") or []):
+            return "PASS", ["review not required by policy"]
+        doc = evidence_mod.load_review(self.root, task["id"], commit)
+        return evidence_mod.evaluate_review_artifact(doc, commit, tree_hash or "")
+
+    def _evaluate_security_gate(self, task: dict, commit: Optional[str],
+                                tree_hash: Optional[str]) -> tuple:
+        """Evaluate the security gate for a task/commit.
+
+        Returns (status, details). If security is not required (not high risk
+        and not declared), returns PASS. Missing/malformed artifact ->
+        BLOCKED; stale artifact (different commit/tree) -> NOT RUN.
+        """
+        policy = task.get("approval_policy") or {}
+        if policy.get("risk_level") != "high" and "security" not in (
+                policy.get("required_gates") or []):
+            return "PASS", ["security not required by policy"]
+        doc = evidence_mod.load_security(self.root, task["id"], commit)
+        return evidence_mod.evaluate_security_artifact(doc, commit, tree_hash or "")
+
+    def _evaluate_criteria(self, task: dict, commit: str, tree_hash: str,
+                           approve: bool) -> List[dict]:
+        """Evaluate acceptance criteria against evidence for *commit*.
+
+        Each criterion declares its verification form (model-validated):
+
+        - ``check:<id>`` -> deterministic check result for this commit
+        - ``review``     -> review artifact linked to commit/tree
+        - ``security``   -> security artifact linked to commit/tree
+        - ``human``      -> explicit human approval (never inferred)
+
+        Returns one audit record per criterion with PASS/FAIL/BLOCKED/NOT RUN.
+        Missing evidence is BLOCKED; evidence for another commit is NOT RUN.
+        """
+        latest = latest_by_check_id(
+            [r for r in self._load_check_results(task["id"])
+             if r.get("phase") == "pre_merge"])
+        records: List[dict] = []
+        for criterion in task.get("acceptance_criteria") or []:
+            verification = criterion.get("verification") or ""
+            record = {
+                "id": criterion["id"],
+                "description": criterion.get("description", ""),
+                "verification": verification,
+                "status": "BLOCKED",
+                "details": [],
+            }
+            if verification.startswith("check:"):
+                check_id = verification.split(":", 1)[1]
+                result = latest.get(check_id)
+                if result is None:
+                    record["status"] = "NOT RUN"
+                    record["details"] = ["no result for check %s" % check_id]
+                elif result.get("commit") not in (None, commit):
+                    record["status"] = "NOT RUN"
+                    record["details"] = [
+                        "stale result for check %s (commit %s)"
+                        % (check_id, result.get("commit"))]
+                else:
+                    status = result.get("status", "NOT RUN")
+                    if status not in CHECK_STATUSES:
+                        # Same normalization as gates.evaluate_gate: corrupt
+                        # stored evidence never counts and never crashes.
+                        status = "NOT RUN"
+                    record["status"] = status
+                    record["details"] = ["check %s: %s"
+                                         % (check_id, record["status"])]
+                    record["evidence_ref"] = result.get("log_ref")
+            elif verification == "review":
+                doc = evidence_mod.load_review(self.root, task["id"], commit)
+                status, details = evidence_mod.evaluate_review_artifact(
+                    doc, commit, tree_hash or "")
+                record.update(status=status, details=details)
+                if doc is not None:
+                    record["evidence_ref"] = doc.get("artifact_ref")
+            elif verification == "security":
+                doc = evidence_mod.load_security(self.root, task["id"], commit)
+                status, details = evidence_mod.evaluate_security_artifact(
+                    doc, commit, tree_hash or "")
+                record.update(status=status, details=details)
+                if doc is not None:
+                    record["evidence_ref"] = doc.get("artifact_ref")
+            elif verification == "human":
+                if approve:
+                    record.update(status="PASS",
+                                  details=["human approval recorded"])
+                else:
+                    record.update(status="BLOCKED",
+                                  details=["human approval required"])
+            else:
+                # Model validation prevents this; the gate stays fail-closed.
+                record["details"] = ["invalid verification %r" % verification]
+            records.append(record)
+        return records
+
+    @staticmethod
+    def _criteria_status(records: List[dict]) -> str:
+        """Worst status across criteria; no criteria means PASS."""
+        if not records:
+            return "PASS"
+        return max((r["status"] for r in records),
+                   key=lambda status: WORST[status])
+
+    def record_review(self, task_id: str, execution_id: str, commit: str,
+                      tree_hash: str, scope: List[str], findings: List[dict],
+                      verdict: str, agent: str = "@reviewer",
+                      force: bool = False) -> dict:
+        """Record a structured review evidence artifact (agent @reviewer)."""
+        task = self.load_task(task_id)
+        path = evidence_mod.record_review(
+            self.root, task_id, execution_id, commit, tree_hash,
+            scope, findings, verdict, agent, force=force)
+        self._event("evidence_review", task_id=task_id,
+                    data={"artifact_ref": str(path), "commit": commit,
+                          "verdict": verdict, "forced": bool(force)})
+        return {"artifact_ref": str(path), "commit": commit, "verdict": verdict}
+
+    def record_security(self, task_id: str, execution_id: str, commit: str,
+                        tree_hash: str, scope: List[str], findings: List[dict],
+                        verdict: str, agent: str = "@security",
+                        force: bool = False) -> dict:
+        """Record a structured security evidence artifact (agent @security)."""
+        task = self.load_task(task_id)
+        path = evidence_mod.record_security(
+            self.root, task_id, execution_id, commit, tree_hash,
+            scope, findings, verdict, agent, force=force)
+        self._event("evidence_security", task_id=task_id,
+                    data={"artifact_ref": str(path), "commit": commit,
+                          "verdict": verdict, "forced": bool(force)})
+        return {"artifact_ref": str(path), "commit": commit, "verdict": verdict}
+
+    # ---------- core-triggered review/security ----------
+
+    def run_review(self, task_id: str, timeout: int = 900,
+                   force: bool = False) -> dict:
+        """Trigger the existing @reviewer agent and record its evidence.
+
+        The agent output must contain a structured JSON block; the core then
+        records the artifact with commit/tree/scope it computed itself.
+        """
+        return self._run_agent_evidence(task_id, "review", "@reviewer",
+                                        timeout, force)
+
+    def run_security(self, task_id: str, timeout: int = 900,
+                     force: bool = False) -> dict:
+        """Trigger the existing @security agent and record its evidence."""
+        return self._run_agent_evidence(task_id, "security", "@security",
+                                        timeout, force)
+
+    def _run_agent_evidence(self, task_id: str, kind: str, agent: str,
+                            timeout: int, force: bool) -> dict:
+        task = self.load_task(task_id)
+        if task["status"] != "completed":
+            raise GateBlockedError(
+                "%s needs a completed task; %s is %s"
+                % (agent, task_id, task["status"]), gate_status="BLOCKED")
+        result = task.get("result") or {}
+        commit = result.get("commit")
+        if not commit:
+            raise GateBlockedError(
+                "%s cannot run for %s: result has no commit"
+                % (agent, task_id), gate_status="BLOCKED")
+
+        tree_hash = gitops.tree_hash(self.root, commit)
+        if not tree_hash:
+            raise GateBlockedError(
+                "%s cannot run for %s: commit %s has no resolvable tree"
+                % (agent, task_id, commit), gate_status="BLOCKED")
+        scope = list(result.get("changed_files") or [])
+        exec_id = result.get("execution_id") or (
+            "%s-%s" % (kind.upper(), commit[:12]))
+        try:
+            workspace = self._agent_workspace(task, commit, agent)
+        except GateBlockedError as exc:
+            self._event("%s_agent_blocked" % kind, task_id=task_id,
+                        data={"agent": agent, "reason": str(exc)},
+                        outcome="BLOCKED")
+            raise
+        template = (_REVIEW_AGENT_PROMPT if kind == "review"
+                    else _SECURITY_AGENT_PROMPT)
+        prompt = template.format(
+            task_id=task_id, title=task.get("title", ""),
+            description=task.get("description", ""), commit=commit,
+            files=", ".join(scope) or "(none recorded)")
+        executor = self._resolve_executor()
+        # The harness expects the agent name as configured (filename), not the
+        # in-prompt @mention syntax. The artifact keeps the @-prefixed identity.
+        harness_agent = agent.lstrip("@")
+        self._event("%s_agent_started" % kind, task_id=task_id,
+                    data={"agent": agent, "harness_agent": harness_agent,
+                          "commit": commit, "workspace": str(workspace)})
+        try:
+            outcome = executor(prompt, workspace, harness_agent, timeout)
+        except Exception as exc:  # noqa: BLE001 - never treated as evidence
+            outcome = {"ok": False, "detail": str(exc), "output": ""}
+        raw = outcome.get("output") or outcome.get("detail") or ""
+        raw_path = self.evidence_dir / task_id / (
+            "%s-agent-%s.txt" % (kind, Path(str(exec_id)).name))
+        atomic_write_text(raw_path, raw)
+        try:
+            # Permissions never substitute gates: an agent that changed the
+            # worktree invalidates the evidence it is about to report.
+            self._verify_agent_workspace(workspace, commit, agent, task_id)
+        except GateBlockedError as exc:
+            self._event("%s_agent_rejected" % kind, task_id=task_id,
+                        data={"agent": agent,
+                              "reason": "worktree changed during the run: %s"
+                                        % exc},
+                        outcome="BLOCKED")
+            raise evidence_mod.EvidenceError(
+                "%s changed the review workspace for %s during the run; "
+                "evidence discarded (%s)" % (agent, task_id, exc))
+        if not outcome.get("ok"):
+            self._event("%s_agent_failed" % kind, task_id=task_id,
+                        data={"agent": agent, "detail": outcome.get("detail")},
+                        outcome="BLOCKED")
+            raise evidence_mod.EvidenceError(
+                "%s agent failed for %s: %s"
+                % (agent, task_id, outcome.get("detail") or "unknown error"))
+
+        doc = extract_structured_evidence(
+            (outcome.get("agent_output") or "").strip() or raw)
+        if doc is None:
+            self._event("%s_agent_rejected" % kind, task_id=task_id,
+                        data={"agent": agent, "reason": "no structured json"},
+                        outcome="BLOCKED")
+            raise evidence_mod.EvidenceError(
+                "%s output for %s is not structured evidence (expected one "
+                "fenced json block with verdict/findings); prose is ignored"
+                % (agent, task_id))
+        try:
+            verdict = str(doc.get("verdict") or "").upper()
+            if verdict not in evidence_mod.VALID_VERDICTS:
+                raise evidence_mod.EvidenceError(
+                    "%s returned invalid verdict %r"
+                    % (agent, doc.get("verdict")))
+            findings = evidence_mod.validate_findings(
+                doc.get("findings") or [])
+            normalized_fail = False
+            if verdict == "PASS" and any(f["severity"] == "critical"
+                                         for f in findings):
+                verdict = "FAIL"
+                normalized_fail = True
+
+            if kind == "review":
+                recorded = self.record_review(
+                    task_id, exec_id, commit, tree_hash, scope, findings,
+                    verdict, agent, force=force)
+            else:
+                recorded = self.record_security(
+                    task_id, exec_id, commit, tree_hash, scope, findings,
+                    verdict, agent, force=force)
+        except evidence_mod.EvidenceError as exc:
+            # One audit trail for every rejection reason: invalid verdict,
+            # invalid findings, or the M-4 refusal to overwrite a FAIL.
+            self._event("%s_agent_rejected" % kind, task_id=task_id,
+                        data={"agent": agent, "reason": str(exc)},
+                        outcome="BLOCKED")
+            raise
+        self._event("%s_agent_recorded" % kind, task_id=task_id,
+                    data={"agent": agent, "commit": commit,
+                          "verdict": verdict, "findings": len(findings),
+                          "normalized_fail": normalized_fail,
+                          "artifact_ref": recorded["artifact_ref"],
+                          "output_ref": str(raw_path)},
+                    outcome=verdict)
+        return {
+            "kind": kind,
+            "agent": agent,
+            "task_id": task_id,
+            "commit": commit,
+            "tree_hash": tree_hash,
+            "verdict": verdict,
+            "normalized_fail": normalized_fail,
+            "findings": findings,
+            "artifact_ref": recorded["artifact_ref"],
+            "output_ref": str(raw_path),
+        }
+
+    def _agent_workspace(self, task: dict, commit: str, agent: str) -> Path:
+        """Workspace the reviewing agent must read: the task worktree.
+
+        Fails closed: never fall back to the base checkout, which would let the
+        agent audit code that is not the task commit while the core records a
+        PASS artifact for that commit.
+        """
+        result = task.get("result") or {}
+        exec_id = result.get("execution_id")
+        execution = None
+        if exec_id:
+            try:
+                execution = self.load_execution(exec_id)
+            except JuicerError:
+                execution = None
+        worktree = ((execution or {}).get("workspace") or {}).get("worktree")
+        if not worktree or not Path(worktree).exists():
+            raise GateBlockedError(
+                "%s cannot review %s: task worktree is missing; restore it at "
+                "the task commit before running the agent"
+                % (agent, task["id"]), gate_status="BLOCKED")
+        workspace = Path(worktree)
+        self._verify_agent_workspace(workspace, commit, agent, task["id"])
+        return workspace
+
+    def _verify_agent_workspace(self, workspace: Path, commit: str,
+                                agent: str, task_id: str) -> None:
+        """The worktree must still be exactly the reviewed commit.
+
+        Tracked changes are refused; untracked check artifacts are tolerated.
+        """
+        head = gitops.head_commit(workspace)
+        if head != commit:
+            raise GateBlockedError(
+                "%s cannot review %s: worktree HEAD %s does not match the task "
+                "commit %s" % (agent, task_id, head, commit),
+                gate_status="BLOCKED")
+        if gitops.has_tracked_changes(workspace):
+            raise GateBlockedError(
+                "%s cannot review %s: worktree has tracked changes; commit or "
+                "discard them first" % (agent, task_id),
+                gate_status="BLOCKED")
 
     def _required_check_ids(self, task: dict) -> List[str]:
         cfg = self.config()
@@ -587,18 +1144,108 @@ class Juicer:
         return cp
 
     def resume(self) -> dict:
-        """Reconcile state after restart; never trusts conversation history."""
+        """Reconcile state after restart; never trusts conversation history.
+
+        For each ``in_progress`` task:
+
+        - Load the current execution and worktree when present.
+        - If the execution already finished, align the task with it
+          (succeeded -> completed, otherwise failed) when the transition is
+          legal.
+        - If the run was interrupted (execution still claimed/running),
+          cancel the execution with a recorded reason, then mark the task
+          ``blocked`` when a worktree still holds evidence, or ``failed``
+          when there is nothing to preserve.
+        - Never leave ``in_progress`` unresolved and never start a duplicate
+          run for a task that is still reconciling.
+        """
         self.config()  # ensure initialized
+        cfg = self.config()
         tasks = self.load_tasks()
         recovered = []
         for t in tasks:
-            if t["status"] == "in_progress":
-                # Interrupted run: mark failed so it can be retried explicitly.
-                self._update_task(t["id"], lambda task: task.update(status="failed"))
-                recovered.append(t["id"])
-                self._event("resume_recovered", task_id=t["id"],
-                            data={"from": "in_progress", "to": "failed"},
-                            outcome="recovered")
+            if t["status"] != "in_progress":
+                continue
+            exec_id = t.get("current_execution_id")
+            exec_doc = None
+            if exec_id:
+                try:
+                    exec_doc = self.load_execution(exec_id)
+                except JuicerError:
+                    exec_doc = None
+            wt_root = self.root / cfg.get("worktree_root", ".juicer/worktrees")
+            worktree = wt_root / t["id"]
+            worktree_exists = worktree.exists()
+
+            if exec_doc is not None and exec_doc.get("status") in (
+                    "succeeded", "failed", "cancelled"):
+                # Execution already terminal: align the task, do not invent a
+                # second failure.
+                if exec_doc["status"] == "succeeded":
+                    target = "completed"
+                else:
+                    target = "failed"
+                # M-1: carry the execution result (commit/branch) into the
+                # task; without it integrate cannot link gates to the commit.
+                carried = exec_doc.get("result") or {}
+
+                def align(task, tgt=target, res=carried):
+                    task["status"] = tgt
+                    if res:
+                        task["result"] = res
+                try:
+                    self._update_task(t["id"], align)
+                    recovered.append(t["id"])
+                    self._event(
+                        "resume_reconciled", task_id=t["id"], execution_id=exec_id,
+                        data={"from": "in_progress", "to": target,
+                              "execution_status": exec_doc["status"],
+                              "worktree_exists": worktree_exists},
+                        outcome="reconciled")
+                except Exception as exc:  # noqa: BLE001 - record and continue
+                    self._event("resume_error", task_id=t["id"],
+                                data={"detail": str(exc)}, outcome="error")
+                continue
+
+            # Interrupted mid-run (or missing/stale execution record).
+            if exec_doc is not None and exec_doc.get("status") in (
+                    "claimed", "running"):
+                reason = "interrupted: reconciled by resume"
+                self._update_execution(
+                    exec_id,
+                    lambda e: e.update(
+                        status="cancelled",
+                        finished_at=utc_now(),
+                        failure={"detail": reason, "exit_code": None},
+                    ))
+                self._event("execution_cancelled", task_id=t["id"],
+                            execution_id=exec_id,
+                            data={"detail": reason}, outcome="cancelled")
+
+            if worktree_exists:
+                target = "blocked"
+                reason = ("interrupted run; worktree preserved at %s"
+                          % worktree)
+            else:
+                target = "failed"
+                reason = "interrupted run; no worktree to preserve"
+            self._update_task(
+                t["id"],
+                lambda task, tgt=target, rsn=reason: task.update(
+                    status=tgt, blocked_reason=rsn if tgt == "blocked" else None,
+                    result={
+                        "resumed": True,
+                        "execution_id": exec_id,
+                        "detail": rsn,
+                        "worktree": str(worktree) if worktree_exists else None,
+                    },
+                ))
+            recovered.append(t["id"])
+            self._event(
+                "resume_recovered", task_id=t["id"], execution_id=exec_id,
+                data={"from": "in_progress", "to": target, "detail": reason,
+                      "worktree_exists": worktree_exists},
+                outcome="recovered")
         status = self.status()
         return {"recovered": recovered, "status": status}
 

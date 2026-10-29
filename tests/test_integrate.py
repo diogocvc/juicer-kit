@@ -54,9 +54,11 @@ def test_post_merge_failure_blocks_done_and_records(juicer):
     with pytest.raises(GateBlockedError) as exc:
         juicer.integrate("TASK-001")
     assert "post-merge" in str(exc.value)
-    # merge itself happened; done is withheld
+    # merge itself happened; done is withheld and the task is blocked
     assert (juicer.root / "new_feature.py").exists()
-    assert juicer.load_task("TASK-001")["status"] != "done"
+    task = juicer.load_task("TASK-001")
+    assert task["status"] == "blocked"
+    assert "post-merge" in task.get("blocked_reason", "")
     events = [e["type"] for e in juicer.events()]
     assert "integration_post_failed" in events
 
@@ -94,3 +96,133 @@ def test_dependency_chain_end_to_end(juicer):
     assert juicer.load_task("TASK-002")["status"] == "done"
     st = juicer.status()
     assert st["next_action"] == "all tasks done; mission complete"
+
+
+# ---------- multi-gate tests ----------
+
+def _commit_tree(juicer, task_id):
+    task = juicer.load_task(task_id)
+    result = task.get("result") or {}
+    commit = result.get("commit")
+    tree_hash = gitops.tree_hash(juicer.root, commit)
+    return commit, tree_hash
+
+
+def _spec_with_gates(tid, required_gates, risk_level=None):
+    spec = simple_task_specs(tid)[0]
+    spec["approval_policy"] = {
+        "human_approval_required": False,
+        "required_gates": required_gates,
+    }
+    if risk_level:
+        spec["approval_policy"]["risk_level"] = risk_level
+    return spec
+
+
+def test_review_gate_required_blocks_without_artifact(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "review"])
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"feat.py": "X = 1\n"})
+    assert juicer.run_task("TASK-001").ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001")
+    assert "review" in str(exc.value).lower()
+    assert juicer.load_task("TASK-001")["status"] == "completed"
+
+
+def test_review_gate_passes_with_valid_artifact(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "review"])
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"feat.py": "X = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    juicer.record_review(
+        "TASK-001", out.data["execution_id"], commit, tree_hash,
+        ["feat.py"], [], "PASS", "@reviewer")
+    integration = juicer.integrate("TASK-001")
+    assert integration["pre_merge_gate"]["status"] == "PASS"
+    assert juicer.load_task("TASK-001")["status"] == "done"
+
+
+def test_security_gate_required_blocks_without_artifact(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "security"], risk_level="high")
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"auth.py": "X = 1\n"})
+    assert juicer.run_task("TASK-001").ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001")
+    assert "security" in str(exc.value).lower()
+    assert juicer.load_task("TASK-001")["status"] == "completed"
+
+
+def test_security_gate_passes_with_valid_artifact(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "security"], risk_level="high")
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"auth.py": "X = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    juicer.record_security(
+        "TASK-001", out.data["execution_id"], commit, tree_hash,
+        ["auth.py"], [], "PASS", "@security")
+    integration = juicer.integrate("TASK-001")
+    assert integration["pre_merge_gate"]["status"] == "PASS"
+    assert juicer.load_task("TASK-001")["status"] == "done"
+
+
+def test_review_critical_finding_is_fail(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "review"])
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"feat.py": "X = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    juicer.record_review(
+        "TASK-001", out.data["execution_id"], commit, tree_hash,
+        ["feat.py"],
+        [{"severity": "critical", "description": "hardcoded secret", "file": "feat.py"}],
+        "FAIL", "@reviewer")
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001")
+    assert "review" in str(exc.value).lower()
+    # CR-2: a FAIL verdict moves the task out of `completed` into `blocked`
+    # so it never becomes a trap state; the reason is recorded for rework.
+    task = juicer.load_task("TASK-001")
+    assert task["status"] == "blocked"
+    assert "review" in task["blocked_reason"]
+
+
+def test_malformed_review_artifact_is_blocked(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "review"])
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"feat.py": "X = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    # write a malformed artifact directly
+    ev_dir = juicer.evidence_dir / "TASK-001"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    (ev_dir / ("review-%s.json" % commit)).write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001")
+    assert "review" in str(exc.value).lower()
+    assert juicer.load_task("TASK-001")["status"] == "completed"
+
+
+def test_stale_review_artifact_is_not_run(juicer):
+    spec = _spec_with_gates("TASK-001", ["verification", "review"])
+    juicer.add_tasks([spec])
+    juicer._executor = fake_ok_executor(write_files={"feat.py": "X = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok
+    commit, tree_hash = _commit_tree(juicer, "TASK-001")
+    # review artifact linked to a different commit
+    juicer.record_review(
+        "TASK-001", out.data["execution_id"], "old_commit", "old_tree",
+        ["feat.py"], [], "PASS", "@reviewer")
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001")
+    assert juicer.load_task("TASK-001")["status"] == "completed"

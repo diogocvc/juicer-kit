@@ -94,3 +94,31 @@ def test_scope_violation_fails_task(juicer):
     task = juicer.load_task("TASK-001")
     assert task["status"] == "failed"
     assert "outside scope" in str(task["result"])
+
+
+def test_scope_prefix_requires_path_boundary(juicer):
+    """M-3: a scope pattern 'src/' must match 'src/a.py' but NOT 'srcx/evil.py'
+    (prefix match must respect path boundaries)."""
+    juicer.add_tasks([{
+        "id": "TASK-001", "title": "T1", "description": "d",
+        "acceptance_criteria": [],
+        "scope": {"paths": ["src/"], "constraints": []},
+    }])
+    # sibling directory sharing the prefix is out of scope
+    juicer._executor = fake_ok_executor(write_files={"srcx/evil.py": "x = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok is False
+    assert "outside scope" in str(juicer.load_task("TASK-001")["result"])
+
+
+def test_scope_allows_files_inside_declared_directory(juicer):
+    """M-3: the declared directory itself (and files under it) stay in scope."""
+    juicer.add_tasks([{
+        "id": "TASK-001", "title": "T1", "description": "d",
+        "acceptance_criteria": [],
+        "scope": {"paths": ["src/"], "constraints": []},
+    }])
+    juicer._executor = fake_ok_executor(write_files={"src/a.py": "x = 1\n"})
+    out = juicer.run_task("TASK-001")
+    assert out.ok is True
+    assert juicer.load_task("TASK-001")["status"] == "completed"

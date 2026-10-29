@@ -71,27 +71,28 @@
 
 ---
 
-### Task: [TASK-003] Definir contrato do harness e validar OpenCode V1
+### Task: [TASK-003] Definir contrato do harness e validar OpenCode V2
 
-**Description**: Definir o contrato interno mínimo do harness (`discover` e `run`), normalizar o resultado e registrar capabilities comprovadas do OpenCode 1.19.4/V1. Manter o adaptador baseado em CLI, sem SDK nem código V2.
+**Description**: Definir o contrato interno mínimo do harness (`discover` e `run`), normalizar o resultado e registrar capabilities comprovadas do OpenCode 2.0/V2. O alvo do MVP é a CLI V2 (D5/D9 do plano); o trabalho V1 já realizado (contrato, testes de contrato, estrutura do adaptador, STATUS parcial) é preservado como base e reaproveitado apenas onde justificado, sem manter integração V1 paralela. Provisionar/detectar o binário V2 é passo bloqueante antes de qualquer declaração de compatibilidade.
 
 **Priority**: P0-Critical
 
-**Status**: Pending
+**Status**: In Progress
 
 **Dependencies**: None
 
 **Acceptance Criteria**:
-- [ ] Contrato documenta descoberta, execução, timeout, sessão quando suportada e resultado normalizado.
-- [ ] Adaptador V1 reporta apenas capabilities comprovadas; nenhuma compatibilidade V2 é declarada.
-- [ ] Testes de contrato usam binário falso e cobrem descoberta, comando, parsing, timeout e falha.
-- [ ] Smoke real V1 registra versão, binário, execução, session id e limitações ambientais.
-- [ ] `STATUS.md` reflete as capacidades e limitações medidas.
-- [ ] `--auto` não é usado por padrão.
+- [x] Binário OpenCode 2.0/V2 provisionado e detectado (`OPENCODE_BIN`, PATH ou instalador oficial); `discover` distingue V2 de V1 e não reporta suporte V2 sem binário V2.
+- [x] Contrato documenta descoberta, execução, timeout, sessão quando suportada e resultado normalizado (base V1 preservada em `docs/HARNESS_CONTRACT.md`, ajustada ao alvo V2).
+- [x] Adaptador alinhado à CLI V2 real; reporta apenas capabilities medidas no binário V2; nenhuma compatibilidade V1 paralela é mantida.
+- [x] Testes de contrato usam binário falso e cobrem descoberta, comando, parsing, timeout e falha (reaproveitar os existentes quando compatíveis).
+- [x] Smoke real V2 registra versão, binário, execução, session id e limitações ambientais.
+- [x] Política de permissões V2 (quando usada) não substitui gates do core; `--auto` não é usado por padrão.
+- [x] `STATUS.md` reflete capacidades **medidas** no V2 e separa o que permanece apenas documental ou bloqueado.
 
-**Estimated Effort**: 1,5–2 dev-days
+**Estimated Effort**: 2–3,5 dev-days (executado no limite inferior; revisar pós-integração)
 
-**Notes**: A CLI V1 oferece `run`, `--format json`, `--agent`, `--dir`, `--session`, `--continue`, `--attach` e `serve`; o adaptador atual usa apenas parte disso. Ver `docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md` seção 11.
+**Notes**: Executado em 2026-10-26: binário `opencode v2.1.4` em `~/.opencode/bin`; `discover` status=supported, `v2=true`; smoke real `SMOKE-OK-7Q2` com `--standalone` e sem `--dir` (V2 não possui `--dir`; workspace via CWD). Suíte 83 passed + 1 smoke. Trabalho V1 preservado e adaptado (contrato, parsing, testes). CR-1 (regex V2) resolvido 2026-10-29. Status permanece **In Progress** até aprovação humana e integração (workflow do kit); critérios técnicos acima cumpridos no working tree e re-revisão @reviewer aprovada em 2026-10-29 (Approved with minor suggestions). Ver `docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md` seções 11 e D.
 
 ---
 
@@ -101,21 +102,22 @@
 
 **Priority**: P0-Critical
 
-**Status**: Pending
+**Status**: In Progress
 
 **Dependencies**: TASK-003
 
 **Acceptance Criteria**:
-- [ ] Toda mudança de status de tarefa usa `TASK_TRANSITIONS`; transições inválidas falham com teste.
-- [ ] Toda mudança de status de execução usa `EXECUTION_TRANSITIONS`.
-- [ ] `completed` e `done` têm invariantes documentadas e testadas.
-- [ ] `resume` não marca `in_progress` como `failed` sem reconciliar execução e worktree.
-- [ ] Revision fence e locks impedem atualização perdida em concorrência.
-- [ ] `blocked` pode ser retomado explicitamente e o histórico anterior é preservado.
+- [x] Toda mudança de status de tarefa usa `TASK_TRANSITIONS`; transições inválidas falham com teste.
+- [x] Toda mudança de status de execução usa `EXECUTION_TRANSITIONS`.
+- [x] `completed` e `done` têm invariantes documentadas e testadas. (CR-2 resolvido 2026-10-29: gate FAIL no `integrate` move `completed → blocked` com `blocked_reason`; rota legal via `retry_task`)
+- [x] `resume` não marca `in_progress` como `failed` sem reconciliar execução e worktree. (M-1 resolvido 2026-10-29: resume copia `result` commit/branch; `integrate` falha limpo sem commit/branch)
+- [x] Revision fence e locks impedem atualização perdida em concorrência.
+- [x] `blocked` pode ser retomado explicitamente e o histórico anterior é preservado.
+- [x] Escopo com fronteira de caminho (M-3 resolvido 2026-10-29: `src/` não casa `srcx/evil.py`).
 
-**Estimated Effort**: 2–2,5 dev-days
+**Estimated Effort**: 2–2,5 dev-days (executado; achados CR-2/M-1/M-3 resolvidos 2026-10-29; re-revisão aprovada; pendente aprovação humana e integração)
 
-**Notes**: Falha pós-merge deve terminar em `blocked`, nunca em `completed`. Ver seções 4 e 10 do plano.
+**Notes**: Implementado no working tree: `check_transition` em `_update_task`/`_update_execution`; `resume` reconcilia com execução e worktree (succeeded→completed com `result` copiado; interrompido+worktree→blocked; sem worktree→failed); `retry_task` aceita failed/blocked com `attempt_history`; falha pós-merge move para `blocked`; gate FAIL pré-merge move `completed → blocked` (CR-2); `_check_scope` com fronteira de caminho (M-3). Falha pós-merge deve terminar em `blocked`, nunca em `completed`. Ver seções 4 e 10 do plano. Revisão @reviewer 2026-10-26: Changes requested — CR-2, M-1, M-3 e G-1; todos resolvidos 2026-10-29 (ver `backlog/review-findings-TASK-003-005.md`); re-revisão 2026-10-29: Approved with minor suggestions; pendente aprovação humana antes de integração.
 
 ---
 
@@ -125,22 +127,22 @@
 
 **Priority**: P0-Critical
 
-**Status**: Pending
+**Status**: In Progress
 
 **Dependencies**: TASK-003, TASK-004
 
 **Acceptance Criteria**:
-- [ ] Critérios declaram verificação (`check:<id>`, `review`, `security` ou `human`) e bloqueiam quando não há evidência válida.
-- [ ] `approval_policy.required_gates` é aplicado; `NOT RUN` nunca permite merge.
-- [ ] Revisão é obrigatória para mudanças de código e ocorre antes do merge.
-- [ ] Segurança é obrigatória para tarefas de alto risco e não é substituída por revisão.
-- [ ] Artefatos de revisão/segurança são estruturados, vinculados a commit/tree e validados pelo core.
-- [ ] Achado crítico resulta em `FAIL`; artefato ausente ou malformado resulta em `BLOCKED`.
-- [ ] O core aciona `@reviewer` e `@security` existentes, sem criar agentes novos.
+- [x] Critérios declaram verificação (`check:<id>`, `review`, `security` ou `human`) e bloqueiam quando não há evidência válida. (implementado 2026-10-29: `verification` validado no modelo e avaliado no `integrate` com auditoria por critério; `tests/test_criteria.py`)
+- [x] `approval_policy.required_gates` é aplicado; `NOT RUN` nunca permite merge.
+- [x] Revisão é obrigatória para mudanças de código e ocorre antes do merge. (quando declarada em `required_gates` ou em critério `verification: review`)
+- [x] Segurança é obrigatória para tarefas de alto risco e não é substituída por revisão. (`risk_level=high`, `required_gates` ou critério `verification: security`)
+- [x] Artefatos de revisão/segurança são estruturados, vinculados a commit/tree e validados pelo core.
+- [x] Achado crítico resulta em `FAIL`; artefato ausente ou malformado resulta em `BLOCKED`. (M-2 resolvido 2026-10-29: semântica única ausente/malformado→BLOCKED, stale→NOT RUN; M-4: FAIL nunca sobrescrito por PASS sem `--force`)
+- [x] O core aciona `@reviewer` e `@security` existentes, sem criar agentes novos. (implementado 2026-10-29: `juicer review-run`/`security-run`; agente responde um bloco JSON estrito, core valida e grava o artefato com commit/tree próprios; prosa é rejeitada; `tests/test_agent_evidence.py`)
 
-**Estimated Effort**: 3–4 dev-days
+**Estimated Effort**: 3–4 dev-days (executado; smoke real de `review-run` no V2 validado; `security-run` ao vivo coberto por testes)
 
-**Notes**: Texto afirmativo do agente não é evidência. Ver seções 5, 6 e 9 do plano.
+**Notes**: Texto afirmativo do agente não é evidência. Ver seções 5, 6 e 9 do plano. Trabalho no working tree (não commitado): `juicer/evidence.py` (artefatos estruturados, `validate_findings`, proteção FAIL→PASS com `--force`, incl. FAIL derivado), `record_review`/`record_security` e `run_review`/`run_security` no orchestrator, avaliação de critérios no `integrate` com auditoria por critério, `required_gates` aplicado, CLI (`review`/`security`/`review-run`/`security-run`), semântica M-2 alinhada. Testes em `tests/test_evidence.py`, `tests/test_criteria.py`, `tests/test_agent_evidence.py`, `tests/test_integrate.py` e `tests/test_cli.py`. Achados M-2/M-4/G-1 resolvidos 2026-10-29; re-revisão @reviewer aprovada (Approved with minor suggestions); suíte 193 passed, 1 skipped. Smoke real: `@reviewer` executado no V2.1.4 (JSON estrito) e NDJSON real reproduzido até `done`; `security-run` ao vivo não executado (mesmo caminho, coberto por testes; 2ª chamada bloqueada por quota HTTP 402).
 
 ---
 
@@ -168,9 +170,9 @@
 
 ---
 
-### Task: [TASK-007] Reforçar isolamento, escopo e caminhos protegidos
+### Task: [TASK-007] Reforçar isolamento, escopo, caminhos protegidos e fronteira de permissões V2
 
-**Description**: Validar o diff completo da execução, detectar commits e arquivos não rastreados criados pelo agente, bloquear caminhos protegidos e impedir alterações fora do escopo.
+**Description**: Validar o diff completo da execução, detectar commits e arquivos não rastreados criados pelo agente, bloquear caminhos protegidos e impedir alterações fora do escopo. Distinguir explicitamente permissões do OpenCode V2 (allow/ask/deny no config) dos gates, escopo e validações do core: permissões do harness são barreira adicional, nunca substituto da verificação interna.
 
 **Priority**: P0-Critical
 
@@ -181,15 +183,16 @@
 **Acceptance Criteria**:
 - [ ] Execução registra `base_commit`, `head_commit`, `tree_hash` e branch.
 - [ ] Escopo considera arquivos rastreados, não rastreados e commits feitos pelo agente.
-- [ ] `.juicer/`, `.git/`, segredos e caminhos declarados pela política são protegidos.
+- [ ] `.juicer/`, `.git/`, segredos e caminhos declarados pela política são protegidos **no core**, independentemente de política de permissões do OpenCode.
 - [ ] Commit feito pelo agente é detectado e falha por padrão, salvo política explícita.
 - [ ] Árvore de destino suja bloqueia integração sem sobrescrever mudanças pré-existentes.
 - [ ] Worktree e branch não são removidos antes de registrar evidência.
 - [ ] Concorrência permanece serial por padrão até testes comprovarem isolamento.
+- [ ] Política de permissões V2 (quando aplicada) não é tratada como evidência de gates nem reduz os checks do core; testes cobrem a fronteira.
 
 **Estimated Effort**: 2–3 dev-days
 
-**Notes**: Ver seção 8 do plano. A validação atual de escopo cobre apenas parte do diff.
+**Notes**: Ver seção 8 do plano e decisão D8. A validação atual de escopo cobre apenas parte do diff. Não depender de permissões do harness para garantias de isolamento.
 
 ---
 
@@ -241,9 +244,9 @@
 
 ---
 
-### Task: [TASK-010] Alinhar agentes, comandos e documentação
+### Task: [TASK-010] Alinhar agentes, comandos e documentação ao alvo V2
 
-**Description**: Alinhar a ordem dos gates e os contratos de `@orchestrator`, `@reviewer`, `@security` e `@tester` com o core; corrigir `AGENTS.md`, README, STATUS e referências ao plano, sem criar agentes.
+**Description**: Alinhar a ordem dos gates e os contratos de `@orchestrator`, `@reviewer`, `@security` e `@tester` com o core; corrigir `AGENTS.md`, README, STATUS e referências ao plano para o alvo OpenCode 2.0/V2, sem criar agentes e sem apagar histórico de medições já realizadas.
 
 **Priority**: P1-High
 
@@ -256,18 +259,20 @@
 - [ ] `@orchestrator` não promete gate que o core não aplica.
 - [ ] `@reviewer` continua sem permissão de edição e é acionado antes do merge.
 - [ ] `@security` é acionado por risco e não substitui revisão.
-- [ ] README e STATUS apontam para o plano e distinguem capacidade validada de lacuna planejada.
+- [ ] README e STATUS apontam para o plano, distinguem capacidade **medida** de lacuna planejada e refletem o alvo V2 sem anunciar compatibilidade não comprovada.
+- [ ] `docs/HARNESS_CONTRACT.md` e comentários do adaptador estão alinhados ao alvo V2; referências V1 remanescentes são atualizadas ou marcadas como histórico.
 - [ ] Comandos `/review` e `/test` permanecem compatíveis com o fluxo.
+- [ ] Permissões V2 (quando citadas) não são apresentadas como substitutas dos gates do core.
 
 **Estimated Effort**: 1–1,5 dev-day
 
-**Notes**: Ver seção 12 do plano. Não alterar silenciosamente decisões aprovadas.
+**Notes**: Ver seção 12 do plano. Depende dos gates de TASK-005/006 e da validação de capabilities da TASK-003 para não prometer o que não foi medido. Não alterar silenciosamente decisões aprovadas.
 
 ---
 
-### Task: [TASK-011] Validar fluxo E2E V1 e aceitação do MVP
+### Task: [TASK-011] Validar fluxo E2E V2 e aceitação do MVP
 
-**Description**: Validar o fluxo completo em repositório temporário com OpenCode 1.19.4 real e cobrir os caminhos negativos que hoje poderiam produzir conclusão indevida.
+**Description**: Validar o fluxo completo em repositório temporário com OpenCode 2.0/V2 real (binário medido, não apenas documental) e cobrir os caminhos negativos que hoje poderiam produzir conclusão indevida.
 
 **Priority**: P0-Critical
 
@@ -281,9 +286,9 @@
 - [ ] Alteração fora de escopo, commit do agente e path protegido bloqueiam.
 - [ ] Falha pós-merge não deixa tarefa `completed` ou `done`.
 - [ ] Interrupção, retry e `resume` são validados sem perda de evidência.
-- [ ] Suíte completa passa e o smoke real V1 é registrado.
-- [ ] Documentação final não declara compatibilidade V2.
+- [ ] Suíte completa passa e o smoke real **V2** é registrado (versão e capabilities medidas).
+- [ ] Documentação final não declara compatibilidade V1 nem capacidade V2 não medida.
 
-**Estimated Effort**: 2–3 dev-days
+**Estimated Effort**: 2,5–3,5 dev-days
 
-**Notes**: Ver Apêndice A do plano. Este é o gate de aceitação do MVP, não de release/deploy.
+**Notes**: Ver Apêndice A do plano. Gate de aceitação do MVP V2, não de release/deploy. Bloqueado na prática até a TASK-003 provisionar e validar o binário V2.

@@ -11,6 +11,7 @@ from typing import Iterable, List, Optional
 from .errors import GateBlockedError
 
 WORST = {"PASS": 0, "NOT RUN": 1, "BLOCKED": 2, "FAIL": 3}
+CHECK_STATUSES = ("PASS", "FAIL", "BLOCKED", "NOT RUN")
 
 
 def evaluate_gate(required: Iterable[dict], commit: Optional[str] = None) -> dict:
@@ -27,7 +28,7 @@ def evaluate_gate(required: Iterable[dict], commit: Optional[str] = None) -> dic
             details.append("%s: stale result for commit %s" % (check.get("check_id"), check.get("commit")))
             continue
         status = check.get("status", "NOT RUN")
-        if status not in ("PASS", "FAIL", "BLOCKED", "NOT RUN"):
+        if status not in CHECK_STATUSES:
             status = "NOT RUN"
         statuses.append(status)
         details.append("%s: %s" % (check.get("check_id"), status))

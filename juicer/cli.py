@@ -33,7 +33,7 @@ def cmd_mission(args):
     criteria = []
     for i, c in enumerate(args.criterion or [], 1):
         criteria.append({"id": "AC-%03d" % i, "description": c,
-                         "verification": "checks", "required": True})
+                         "verification": "human", "required": True})
     gaps = []
     for i, g in enumerate(args.gap or [], 1):
         gaps.append({"id": "GAP-%03d" % i, "question": g, "resolution": None})
@@ -106,6 +106,64 @@ def cmd_run(args):
 def cmd_retry(args):
     j = _juicer(args)
     _print(j.retry_task(args.task))
+    return 0
+
+
+def cmd_review(args):
+    j = _juicer(args)
+    findings = []
+    if args.finding:
+        for f in args.finding:
+            parts = f.split(":", 2)
+            finding = {"severity": "medium", "description": f}
+            if len(parts) >= 2:
+                finding["severity"] = parts[0]
+                finding["description"] = parts[1]
+            if len(parts) >= 3:
+                finding["file"] = parts[2]
+            findings.append(finding)
+    scope = args.scope or []
+    out = j.record_review(
+        task_id=args.task, execution_id=args.execution_id or "REVIEW-001",
+        commit=args.commit, tree_hash=args.tree_hash or "",
+        scope=scope, findings=findings, verdict=args.verdict,
+        agent=args.agent or "@reviewer", force=args.force)
+    _print(out)
+    return 0
+
+
+def cmd_review_run(args):
+    j = _juicer(args)
+    _print(j.run_review(args.task, timeout=args.timeout, force=args.force))
+    return 0
+
+
+def cmd_security_run(args):
+    j = _juicer(args)
+    _print(j.run_security(args.task, timeout=args.timeout, force=args.force))
+    return 0
+
+
+def cmd_security(args):
+    j = _juicer(args)
+    findings = []
+    if args.finding:
+        for f in args.finding:
+            parts = f.split(":", 2)
+            finding = {"severity": "medium", "description": f}
+            if len(parts) >= 2:
+                finding["severity"] = parts[0]
+                finding["description"] = parts[1]
+            if len(parts) >= 3:
+                finding["file"] = parts[2]
+            findings.append(finding)
+    scope = args.scope or []
+    out = j.record_security(
+        task_id=args.task, execution_id=args.execution_id or "SECURITY-001",
+        commit=args.commit, tree_hash=args.tree_hash or "",
+        scope=scope, findings=findings, verdict=args.verdict,
+        agent=args.agent or "@security", force=args.force)
+    _print(out)
     return 0
 
 
@@ -185,6 +243,58 @@ def build_parser():
     sp = sub.add_parser("retry", help="return a failed task to ready")
     sp.add_argument("task")
     sp.set_defaults(fn=cmd_retry)
+
+    sp = sub.add_parser("review", help="record a structured review evidence artifact")
+    sp.add_argument("task", help="task id")
+    sp.add_argument("--commit", required=True, help="commit hash the review is linked to")
+    sp.add_argument("--tree-hash", dest="tree_hash", required=True,
+                    help="git tree hash of the commit")
+    sp.add_argument("--execution-id", default="REVIEW-001", help="execution id")
+    sp.add_argument("--verdict", choices=["PASS", "FAIL"], default="PASS",
+                    help="review verdict")
+    sp.add_argument("--agent", default="@reviewer", help="reviewing agent")
+    sp.add_argument("--scope", action="append", help="reviewed file path (repeatable)")
+    sp.add_argument("--finding", action="append",
+                    help="finding as severity:description[:file] (repeatable)")
+    sp.add_argument("--force", action="store_true",
+                    help="allow a PASS verdict to overwrite a recorded FAIL")
+    sp.set_defaults(fn=cmd_review)
+
+    sp = sub.add_parser("security", help="record a structured security evidence artifact")
+    sp.add_argument("task", help="task id")
+    sp.add_argument("--commit", required=True, help="commit hash the audit is linked to")
+    sp.add_argument("--tree-hash", dest="tree_hash", required=True,
+                    help="git tree hash of the commit")
+    sp.add_argument("--execution-id", default="SECURITY-001", help="execution id")
+    sp.add_argument("--verdict", choices=["PASS", "FAIL"], default="PASS",
+                    help="security verdict")
+    sp.add_argument("--agent", default="@security", help="auditing agent")
+    sp.add_argument("--scope", action="append", help="audited file path (repeatable)")
+    sp.add_argument("--finding", action="append",
+                    help="finding as severity:description[:file] (repeatable)")
+    sp.add_argument("--force", action="store_true",
+                    help="allow a PASS verdict to overwrite a recorded FAIL")
+    sp.set_defaults(fn=cmd_security)
+
+    sp = sub.add_parser(
+        "review-run",
+        help="trigger the existing @reviewer agent and record its evidence")
+    sp.add_argument("task", help="completed task id")
+    sp.add_argument("--timeout", type=int, default=900,
+                    help="agent timeout in seconds (default: 900)")
+    sp.add_argument("--force", action="store_true",
+                    help="allow a PASS verdict to overwrite a recorded FAIL")
+    sp.set_defaults(fn=cmd_review_run)
+
+    sp = sub.add_parser(
+        "security-run",
+        help="trigger the existing @security agent and record its evidence")
+    sp.add_argument("task", help="completed task id")
+    sp.add_argument("--timeout", type=int, default=900,
+                    help="agent timeout in seconds (default: 900)")
+    sp.add_argument("--force", action="store_true",
+                    help="allow a PASS verdict to overwrite a recorded FAIL")
+    sp.set_defaults(fn=cmd_security_run)
 
     sp = sub.add_parser("integrate", help="gate + merge + post-merge checks")
     sp.add_argument("task")

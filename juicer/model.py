@@ -19,6 +19,13 @@ TASK_STATUS = ("ready", "in_progress", "blocked", "failed", "completed", "done")
 EXECUTION_STATUS = ("claimed", "running", "succeeded", "failed", "cancelled")
 CHECK_STATUS = ("PASS", "FAIL", "BLOCKED", "NOT RUN")
 
+# Task status invariants (structural B.12/B.13):
+# - `completed` means pre-merge work finished; the change is NOT integrated.
+# - `done` is only reachable after explicit merge and a post-merge gate PASS.
+# - Post-merge failure must leave the task `blocked`, never `completed`/`done`.
+# - `blocked` and `failed` are explicitly retriable; `done` is terminal.
+# - `in_progress` is never a stable end state: resume must reconcile it.
+
 TASK_TRANSITIONS = {
     ("ready", "in_progress"),
     ("ready", "blocked"),
@@ -41,6 +48,21 @@ EXECUTION_TRANSITIONS = {
 }
 
 _ID_RE = re.compile(r"^[A-Z][A-Z0-9]*-[A-Za-z0-9._-]+$")
+# Acceptance criterion verification forms (plan §6):
+# - check:<id>  deterministic check result
+# - review      review evidence artifact linked to commit/tree
+# - security    security evidence artifact linked to commit/tree
+# - human       explicit human approval
+_CHECK_VERIFICATION_RE = re.compile(r"^check:[A-Za-z0-9._-]+$")
+SIMPLE_VERIFICATIONS = ("review", "security", "human")
+
+
+def is_valid_verification(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    if value in SIMPLE_VERIFICATIONS:
+        return True
+    return bool(_CHECK_VERIFICATION_RE.match(value))
 
 
 def new_run_id() -> str:
@@ -50,6 +72,20 @@ def new_run_id() -> str:
 def check_transition(entity: str, current: str, target: str, allowed) -> None:
     if (current, target) not in allowed:
         raise InvalidTransitionError("%s: transition %s -> %s not allowed" % (entity, current, target))
+
+
+def transition_task(doc: dict, target: str) -> dict:
+    """Apply a validated task status transition in place."""
+    check_transition("task", doc.get("status"), target, TASK_TRANSITIONS)
+    doc["status"] = target
+    return doc
+
+
+def transition_execution(doc: dict, target: str) -> dict:
+    """Apply a validated execution status transition in place."""
+    check_transition("execution", doc.get("status"), target, EXECUTION_TRANSITIONS)
+    doc["status"] = target
+    return doc
 
 
 def _require(errors, cond, msg):
@@ -127,7 +163,13 @@ def validate_task(doc: dict):
             if c["id"] in seen:
                 errors.append("duplicate acceptance criterion id %s" % c["id"])
             seen.add(c["id"])
-            _require(errors, bool(c.get("verification")), "criterion %s needs verification" % c["id"])
+            verification = c.get("verification")
+            _require(errors, bool(verification), "criterion %s needs verification" % c["id"])
+            if verification and not is_valid_verification(verification):
+                errors.append(
+                    "criterion %s has invalid verification %r "
+                    "(use check:<id>, review, security or human)"
+                    % (c["id"], verification))
     scope = doc.get("scope", {})
     _require(errors, isinstance(scope, dict) and isinstance(scope.get("paths", []), list),
              "scope.paths must be a list")

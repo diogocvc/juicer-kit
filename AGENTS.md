@@ -6,6 +6,7 @@ Juicer Kit 4.0.0 — Markdown kit (agents, commands, skills) plus the Python orc
 
 - `backlog/` — planning task board. `backlog/backlog.md` (pending), `backlog/in-progress.md` (running), `backlog/done/` (finished).
 - `docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md` — approved implementation plan, gates, phases and backlog mapping.
+- `docs/HARNESS_CONTRACT.md` — minimal `discover`/`run` contract between core and harness adapters.
 - `.opencode/agents/` — the agent team (`@orchestrator`, `@finder`, `@coder`, `@reviewer`, `@tester`, …).
 - `.opencode/commands/` — slash commands (`/add-backlog`, `/edit-backlog`, `/remove-backlog`, `/start`, `/plan`, `/review`, `/test`, …).
 - `.opencode/skills/` — reusable playbooks (TDD, security review, code review checklist, …).

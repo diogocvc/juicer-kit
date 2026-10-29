@@ -44,7 +44,7 @@ def juicer(repo):
         title="Demo mission",
         objective="Deliver a verified increment",
         acceptance_criteria=[
-            {"id": "AC-001", "description": "tests pass", "verification": "automated_test", "required": True},
+            {"id": "AC-001", "description": "tests pass", "verification": "human", "required": True},
         ],
     )
     return j
@@ -82,7 +82,7 @@ def simple_task_specs(*ids, deps=None):
             "description": "Implement %s" % tid,
             "depends_on": deps.get(tid, []),
             "acceptance_criteria": [
-                {"id": "AC-1", "description": "works", "verification": "automated_test", "required": True}
+                {"id": "AC-1", "description": "works", "verification": "check:py-ok", "required": True}
             ],
             "scope": {"paths": [], "constraints": []},
             "approval_policy": {"human_approval_required": False, "required_gates": ["verification"]},

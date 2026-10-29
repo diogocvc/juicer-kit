@@ -46,8 +46,8 @@ estrutural v2.0 (escopo MVP) e no mapa de atividades v2.
 
 ### Limitações registradas
 
-- OpenCode validado: 1.19.4 (referência cita 2.0; só a integração foi
-  adaptada — ver STATUS.md).
+- OpenCode validado: **2.1.4 (V2)** — `discover` v2=true, smoke real de
+  `run` e `review-run`; V1 permanece degradado e fora do alvo (ver STATUS.md).
 - Sem coordenação entre máquinas, sem preview/URL, sem deploy: fora do MVP
   aprovado.
 

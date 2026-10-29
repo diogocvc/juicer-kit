@@ -65,6 +65,18 @@ def is_dirty(path: Path, exclude=()) -> bool:
     return bool(status_porcelain(path, exclude=exclude))
 
 
+def has_tracked_changes(path: Path) -> bool:
+    """True when tracked files differ from HEAD (staged or unstaged).
+
+    Untracked files are ignored on purpose: post-commit checks may leave
+    artifacts (coverage, logs, snapshots) without changing the reviewed commit.
+    Errors are treated as dirty (fail closed).
+    """
+    unstaged = git(["diff", "--quiet"], path, check=False)
+    staged = git(["diff", "--quiet", "--cached"], path, check=False)
+    return unstaged.returncode != 0 or staged.returncode != 0
+
+
 def changed_files(path: Path, base: Optional[str] = None) -> List[str]:
     """Files changed relative to HEAD, including untracked ones."""
     if base:
@@ -167,3 +179,10 @@ def merge_no_ff(repo: Path, branch: str, message: Optional[str] = None) -> Tuple
 def diff_against(path: Path, base: str) -> str:
     proc = git(["diff", base], path, check=False)
     return proc.stdout
+
+
+def tree_hash(path: Path, commit: Optional[str] = None) -> Optional[str]:
+    """Return the git tree hash for *commit* (or HEAD when omitted)."""
+    ref = "%s^{tree}" % commit if commit else "HEAD^{tree}"
+    proc = git(["rev-parse", ref], path, check=False)
+    return proc.stdout.strip() if proc.returncode == 0 else None
