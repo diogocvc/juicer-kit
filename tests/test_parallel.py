@@ -1,5 +1,6 @@
 """Two independent tasks execute in isolated worktrees, including in parallel."""
 
+import threading
 import time
 from pathlib import Path
 
@@ -27,12 +28,18 @@ def test_two_independent_tasks_use_separate_worktrees_and_branches(juicer):
     assert "TASK-001" in worktrees and "TASK-002" in worktrees
 
 
-def fake_writing_executor(delay=0.0):
+def fake_writing_executor(delay=0.0, intervals=None):
+    lock = threading.Lock()
+
     def run(prompt, cwd, agent, timeout):
+        started = time.monotonic()
         if delay:
             time.sleep(delay)
         marker = "only-%s.txt" % ("1" if "TASK-001" in prompt else "2")
         (Path(cwd) / marker).write_text("content %s\n" % marker, encoding="utf-8")
+        if intervals is not None:
+            with lock:
+                intervals.append((started, time.monotonic()))
         return {"ok": True, "status": "PASS", "exit_code": 0, "detail": "ok",
                 "session_id": "ses_par", "output": "done"}
     return run
@@ -40,15 +47,21 @@ def fake_writing_executor(delay=0.0):
 
 def test_parallel_dispatch_runs_both_independently(juicer):
     juicer.add_tasks(simple_task_specs("TASK-001", "TASK-002"))
-    juicer._executor = fake_writing_executor(delay=1.0)
-    start = time.time()
+    intervals = []
+    juicer._executor = fake_writing_executor(delay=1.0, intervals=intervals)
+    start = time.monotonic()
     outcomes = juicer.run_eligible(max_jobs=2)
-    elapsed = time.time() - start
+    elapsed = time.monotonic() - start
     assert sorted(o.task_id for o in outcomes) == ["TASK-001", "TASK-002"]
     assert all(o.ok for o in outcomes)
-    # real parallelism: wall clock clearly below the serial sum (2.0s+);
-    # git worktree setup is inherently serialized, so the margin accounts for it
-    assert elapsed < 1.6, "expected concurrent execution, took %.2fs" % elapsed
+    # real parallelism: the two executor calls overlap, regardless of how long
+    # serialized git worktree setup takes on a loaded machine
+    assert len(intervals) == 2, intervals
+    latest_start = max(started for started, _ in intervals)
+    earliest_end = min(ended for _, ended in intervals)
+    assert earliest_end - latest_start >= 0.5, "expected overlapping runs: %s" % intervals
+    # and wall clock stays below the serial sum of executor time (2.0s+)
+    assert elapsed < 2.5, "expected concurrent execution, took %.2fs" % elapsed
     t1 = juicer.load_task("TASK-001")
     t2 = juicer.load_task("TASK-002")
     assert t1["status"] == t2["status"] == "completed"
