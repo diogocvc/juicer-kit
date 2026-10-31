@@ -71,9 +71,15 @@ def test_human_gate_is_separate_from_technical_gate(juicer):
         juicer.integrate("TASK-001")
     assert "human approval" in str(exc.value)
     assert juicer.load_task("TASK-001")["status"] == "completed"
-    # explicit approval completes the flow
+    # `--approve` alone is never enough: approval must be recorded first
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001", approve=True)
+    assert "juicer approve" in str(exc.value)
+    # explicit, recorded approval completes the flow
+    juicer.approve("TASK-001", approver="alice")
     integration = juicer.integrate("TASK-001", approve=True)
     assert integration["approved"] is True
+    assert integration["approval"]["approver"] == "alice"
     assert juicer.load_task("TASK-001")["status"] == "done"
 
 
@@ -168,8 +174,11 @@ def test_security_gate_passes_with_valid_artifact(juicer):
     juicer.record_security(
         "TASK-001", out.data["execution_id"], commit, tree_hash,
         ["auth.py"], [], "PASS", "@security")
-    integration = juicer.integrate("TASK-001")
+    # high risk also requires recorded human approval (plan §7)
+    juicer.approve("TASK-001", approver="alice")
+    integration = juicer.integrate("TASK-001", approve=True)
     assert integration["pre_merge_gate"]["status"] == "PASS"
+    assert integration["approval"]["approver"] == "alice"
     assert juicer.load_task("TASK-001")["status"] == "done"
 
 

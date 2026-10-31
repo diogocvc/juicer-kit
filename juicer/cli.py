@@ -167,6 +167,13 @@ def cmd_security(args):
     return 0
 
 
+def cmd_approve(args):
+    j = _juicer(args)
+    _print(j.approve(args.task, approver=args.approver,
+                     reason=args.reason, note=args.note))
+    return 0
+
+
 def cmd_integrate(args):
     j = _juicer(args)
     out = j.integrate(args.task, approve=args.approve)
@@ -296,10 +303,23 @@ def build_parser():
                     help="allow a PASS verdict to overwrite a recorded FAIL")
     sp.set_defaults(fn=cmd_security_run)
 
+    sp = sub.add_parser(
+        "approve",
+        help="record a human approval linked to the task commit/tree")
+    sp.add_argument("task", help="task id (must have a commit)")
+    sp.add_argument("--approver", required=True,
+                    help="approver identity (never anonymous)")
+    sp.add_argument("--reason", default=None,
+                    help="why approval was required (no secrets)")
+    sp.add_argument("--note", default=None,
+                    help="justification note (no secrets)")
+    sp.set_defaults(fn=cmd_approve)
+
     sp = sub.add_parser("integrate", help="gate + merge + post-merge checks")
     sp.add_argument("task")
     sp.add_argument("--approve", action="store_true",
-                    help="record human approval when the task policy requires it")
+                    help="explicit merge intent; a `juicer approve` record for "
+                         "this commit is still required when approval applies")
     sp.set_defaults(fn=cmd_integrate)
 
     sp = sub.add_parser("checkpoint", help="write a recovery checkpoint")

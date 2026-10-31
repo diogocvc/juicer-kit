@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from . import approval as approval_mod
 from . import checks as checks_mod
 from . import evidence as evidence_mod
 from . import gitops
@@ -141,7 +142,7 @@ class Juicer:
         if not gitignore.exists():
             atomic_write_text(
                 gitignore,
-                "worktrees/\nevidence/\nexecutions/\nchecks/\ncheckpoints/\nevents.jsonl\n*.lock\n",
+                "worktrees/\nevidence/\napprovals/\nexecutions/\nchecks/\ncheckpoints/\nevents.jsonl\n*.lock\n",
             )
         self._event("init", data={"kit": "4.0.0", "root": str(self.root)})
         return cfg
@@ -581,6 +582,46 @@ class Juicer:
                     outcome="ready")
         return doc
 
+    # ---------- human approval (plan §7) ----------
+
+    def approve(self, task_id: str, approver: str,
+                reason: Optional[str] = None,
+                note: Optional[str] = None) -> dict:
+        """Record a human approval linked to the task's current commit/tree.
+
+        The core computes commit/tree itself (never taken from the caller or
+        from agent text). Anonymous approvers and secret-bearing notes are
+        rejected. The record is valid only for this commit: a new commit
+        invalidates it.
+        """
+        # Validate the identity first: an anonymous approver is refused even
+        # before looking at the task (fail fast on the input itself).
+        approver = approval_mod.validate_approver(approver)
+        task = self.load_task(task_id)
+        result = task.get("result") or {}
+        commit = result.get("commit")
+        if not commit:
+            raise GateBlockedError(
+                "%s has no commit to approve (run the task first); approval "
+                "is always linked to a commit" % task_id, gate_status="BLOCKED")
+        tree_hash = gitops.tree_hash(self.root, commit)
+        if not tree_hash:
+            raise GateBlockedError(
+                "%s cannot be approved: commit %s has no resolvable tree"
+                % (task_id, commit), gate_status="BLOCKED")
+        required_by = self._approval_triggers(task)
+        path = approval_mod.record_approval(
+            self.root, task_id, approver, commit, tree_hash,
+            required_by=required_by, reason=reason, note=note)
+        doc = approval_mod.load_approval(self.root, task_id)
+        self._event("human_approval_recorded", task_id=task_id,
+                    data={"approver": doc["approver"], "commit": commit,
+                          "tree_hash": tree_hash, "reason": doc.get("reason"),
+                          "note": doc.get("note"), "required_by": required_by,
+                          "record_ref": str(path)},
+                    outcome="PASS")
+        return doc
+
     # ---------- integration ----------
 
     def integrate(self, task_id: str, approve: bool = False,
@@ -589,6 +630,10 @@ class Juicer:
 
         Mandatory gate order (canonical): verification -> review -> security
         (when required) -> approval. NOT RUN never allows merge.
+
+        ``approve=True`` only expresses the explicit merge intent; it never
+        substitutes the recorded approval (plan §7): a linked, non-anonymous
+        record must exist for this exact commit/tree.
         """
         task = self.load_task(task_id)
         if task["status"] != "completed":
@@ -604,6 +649,11 @@ class Juicer:
                 "re-run the task or restore the execution result before "
                 "integrating" % (task_id, sorted(result)), gate_status="BLOCKED")
         tree_hash = gitops.tree_hash(self.root, commit)
+
+        # Human approval record for this commit/tree (plan §7): evaluated once,
+        # enforced by the approval gate and by the explicit-merge checks below.
+        approval_status, approval_details, approval_record = (
+            self._evaluate_approval(task, commit, tree_hash))
 
         # --- multi-gate evaluation (pre-merge, canonical order) ---
         required_gates = self._required_gates(task, result)
@@ -632,13 +682,21 @@ class Juicer:
                     gate_results.append(("security", sgate, sdetails))
                     require_gate(sgate, "security gate for %s" % task_id)
                 elif gate_name == "approval":
-                    gate_results.append(("approval", "PASS",
-                                         ["human approval recorded" if approve
-                                          else "human approval not required"]))
+                    # The gate passes only on a recorded approval linked to
+                    # this commit/tree; `--approve` alone never produces PASS.
+                    gate_results.append(("approval", approval_status,
+                                         approval_details))
+                    if approval_status != "PASS":
+                        hint = (approval_details or [approval_status])[0]
+                        raise GateBlockedError(
+                            "approval gate for %s: %s — %s"
+                            % (task_id, approval_status, hint),
+                            gate_status=approval_status)
             # Acceptance criteria are evaluated last: review/security criteria
             # need the artifacts recorded for this commit. A criterion without
             # valid evidence blocks the merge (plan §6).
-            criteria = self._evaluate_criteria(task, commit, tree_hash, approve)
+            criteria = self._evaluate_criteria(task, commit, tree_hash,
+                                               approval_status, approval_details)
             cgate = self._criteria_status(criteria)
             cdetails = ["%s (%s): %s" % (c["id"], c["verification"], c["status"])
                         for c in criteria] or ["no acceptance criteria declared"]
@@ -663,13 +721,21 @@ class Juicer:
             # retried without re-running the task.
             raise
 
-        # Human approval is a separate gate, always enforced when the policy
-        # requires it, independent of required_gates.
-        policy = task.get("approval_policy") or {}
-        if policy.get("human_approval_required") and not approve:
+        # Human approval is a separate gate (plan §7), enforced independently
+        # of required_gates whenever the policy/risk/criteria require it.
+        if approve and approval_status != "PASS":
             raise GateBlockedError(
-                "human approval required for %s; re-run with --approve after "
-                "review" % task_id, gate_status="BLOCKED")
+                "--approve for %s has no valid approval record for this "
+                "commit (%s); record it with `juicer approve %s --approver "
+                "<name>` — approval is never anonymous or unlinked"
+                % (task_id, approval_details[0] if approval_details else
+                   approval_status, task_id),
+                gate_status=approval_status)
+        if self._approval_required(task) and not approve:
+            raise GateBlockedError(
+                "human approval required for %s; record it with `juicer "
+                "approve %s --approver <name>` and re-run with --approve"
+                % (task_id, task_id), gate_status="BLOCKED")
 
         if gitops.is_dirty(self.root, exclude=(".juicer",)) and not allow_dirty:
             raise GateBlockedError(
@@ -697,8 +763,16 @@ class Juicer:
             "pre_merge_gate": {"status": "PASS", "details": gate_results},
             "post_merge_gate": post_gate,
             "acceptance_criteria": criteria,
-            "approved": bool(approve or not (task.get("approval_policy") or {}).get(
-                "human_approval_required")),
+            "approval_required": self._approval_required(task),
+            "approved": bool(not self._approval_required(task)
+                             or (approve and approval_status == "PASS")),
+            "approval": (
+                {k: (self._approval_triggers(task) if k == "required_by"
+                     else approval_record.get(k))
+                 for k in
+                 ("approver", "commit", "tree_hash", "approved_at",
+                  "reason", "note", "required_by")}
+                if approval_record else None),
             "integrated_at": utc_now(),
         }
         write_json(self.jdir / ("integration-%s.json" % task_id), integration)
@@ -775,9 +849,46 @@ class Juicer:
         doc = evidence_mod.load_security(self.root, task["id"], commit)
         return evidence_mod.evaluate_security_artifact(doc, commit, tree_hash or "")
 
+    # ---------- human approval gate (plan §7) ----------
+
+    def _approval_triggers(self, task: dict) -> List[str]:
+        """Why human approval is required for this task (audit field)."""
+        policy = task.get("approval_policy") or {}
+        triggers = []
+        if policy.get("human_approval_required"):
+            triggers.append("policy:human_approval_required")
+        if policy.get("risk_level") == "high":
+            triggers.append("policy:risk_level=high")
+        if "approval" in (policy.get("required_gates") or []):
+            triggers.append("gate:approval")
+        for criterion in task.get("acceptance_criteria") or []:
+            if criterion.get("verification") == "human":
+                triggers.append("criterion:%s" % criterion.get("id"))
+        return triggers
+
+    def _approval_required(self, task: dict) -> bool:
+        """True when this task cannot merge without recorded human approval."""
+        return bool(self._approval_triggers(task))
+
+    def _evaluate_approval(self, task: dict, commit: Optional[str],
+                           tree_hash: Optional[str]) -> tuple:
+        """Evaluate the human approval record.
+
+        Returns (status, details, record). Missing/malformed -> BLOCKED;
+        recorded for another commit/tree -> NOT RUN (new commit invalidates).
+        """
+        doc = approval_mod.load_approval(self.root, task["id"])
+        return approval_mod.evaluate_approval(doc, task["id"], commit or "",
+                                              tree_hash or "")
+
     def _evaluate_criteria(self, task: dict, commit: str, tree_hash: str,
-                           approve: bool) -> List[dict]:
+                           approval_status: str,
+                           approval_details: Optional[List[str]] = None,
+                           ) -> List[dict]:
         """Evaluate acceptance criteria against evidence for *commit*.
+
+        ``approval_status`` is required (fail closed): a caller that forgets
+        it must fail to compile, never silently satisfy a ``human`` criterion.
 
         Each criterion declares its verification form (model-validated):
 
@@ -838,12 +949,12 @@ class Juicer:
                 if doc is not None:
                     record["evidence_ref"] = doc.get("artifact_ref")
             elif verification == "human":
-                if approve:
-                    record.update(status="PASS",
-                                  details=["human approval recorded"])
-                else:
-                    record.update(status="BLOCKED",
-                                  details=["human approval required"])
+                # Only the recorded approval counts; `--approve` without a
+                # commit-linked record stays BLOCKED/NOT RUN here as well.
+                record.update(
+                    status=approval_status,
+                    details=list(approval_details or
+                                 ["human approval %s" % approval_status]))
             else:
                 # Model validation prevents this; the gate stays fail-closed.
                 record["details"] = ["invalid verification %r" % verification]

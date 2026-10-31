@@ -134,8 +134,9 @@ The core turns a mission into isolated, auditable executions through OpenCode:
 2. Work runs in a **dedicated git worktree/branch** (`juicer/<TASK-ID>`) — never on your checkout.
 3. The agent's prose is never evidence; only the commit, diff, captured output and **deterministic checks** are.
 4. **Review/security are evidence gates**: `juicer review-run` / `security-run` trigger the existing `@reviewer`/`@security` agents, require one structured JSON block in their output, and the core records the artifact linked to commit/tree. The task must be `completed` and its worktree present, clean and at the task commit; otherwise the command refuses with `BLOCKED` instead of reviewing the wrong tree. Missing, stale or malformed evidence blocks the merge.
-5. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes), acceptance-criteria evaluation and post-merge checks on the merged commit.
-6. State uses atomic writes, `flock`, revision fences, JSONL events and `juicer resume` after interruption; full reconciliation remains partial (see [STATUS.md](STATUS.md)).
+5. **Human approval is a separate, recorded gate**: when the policy requires it (or the task is high risk), `juicer approve TASK-ID --approver <name>` records an approval linked to the exact commit/tree. `integrate --approve` only states the merge intent and is refused without that record — approval is never anonymous, never inferred, and never changes a technical gate result.
+6. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes), acceptance-criteria evaluation and post-merge checks on the merged commit.
+7. State uses atomic writes, `flock`, revision fences, JSONL events and `juicer resume` after interruption; full reconciliation remains partial (see [STATUS.md](STATUS.md)).
 
 ### Quick start
 
@@ -182,7 +183,8 @@ python3 bin/juicer integrate TASK-001
 | `juicer security TASK-ID --commit --tree-hash` | Record a structured security artifact |
 | `juicer review-run TASK-ID` | Trigger the existing `@reviewer`, record evidence from its JSON output |
 | `juicer security-run TASK-ID` | Trigger the existing `@security`, record evidence from its JSON output |
-| `juicer integrate TASK-ID` | Gates + criteria + explicit merge + post-merge checks |
+| `juicer approve TASK-ID --approver NAME [--reason][--note]` | Record human approval linked to the task commit/tree (never anonymous; notes reject secrets) |
+| `juicer integrate TASK-ID [--approve]` | Gates + criteria + explicit merge + post-merge checks |
 | `juicer checkpoint` | Force a consistency checkpoint |
 | `juicer resume` | Recover interrupted tasks after a crash/restart |
 | `juicer events` | Tail the append-only JSONL event log |

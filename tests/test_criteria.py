@@ -256,6 +256,12 @@ def test_human_criterion_requires_explicit_approval(juicer):
     with pytest.raises(GateBlockedError) as exc:
         juicer.integrate("TASK-001")
     assert exc.value.gate_status == "BLOCKED"
+    # `--approve` alone cannot satisfy the criterion either: no record yet
+    with pytest.raises(GateBlockedError) as exc:
+        juicer.integrate("TASK-001", approve=True)
+    assert exc.value.gate_status == "BLOCKED"
+    # record the approval, then the explicit merge intent passes
+    juicer.approve("TASK-001", approver="alice")
     integration = juicer.integrate("TASK-001", approve=True)
     assert integration["acceptance_criteria"][0]["status"] == "PASS"
     assert juicer.load_task("TASK-001")["status"] == "done"

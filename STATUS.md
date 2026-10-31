@@ -42,7 +42,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | `blocked`/`failed` retomáveis com histórico | **supported (medida)** | `retry_task` + `attempt_history` |
 | Falha pós-merge → `blocked` (nunca `completed`/`done`) | **supported (medida)** | `test_post_merge_failure_*` |
 | Proteção de mudanças pré-existentes | **supported** | `test_preservation.py` |
-| Aprovação humana separada do gate técnico | **partial** | `--approve` separa o gate; registro aprovador/commit/tree em TASK-006 |
+| Aprovação humana separada do gate técnico | **supported (medida)** | `juicer approve` grava registro aprovador/task/commit/tree/data/nota; `--approve` sem registro é recusado; novo commit invalida; não altera gates técnicos; alto risco exige aprovação; `tests/test_approval.py` |
 | Critérios de aceitação verificados pelo core | **supported (medida)** | `check:<id>`, `review`, `security`, `human`; evidência vinculada a commit/tree; auditoria por critério; `tests/test_criteria.py` |
 | Revisão e segurança obrigatórias no core | **supported (medida)** | `required_gates` + artefatos estruturados + gate; `tests/test_integrate.py`, `tests/test_evidence.py` |
 | Acionamento de `@reviewer`/`@security` pelo core | **supported (medido: review-run)** | `review-run` executou o `@reviewer` real (V2.1.4) e retornou JSON estrito; NDJSON capturado reproduzido até `done`. `security-run`: mesmo caminho de código, coberto por testes (chamada ao vivo bloqueada por quota do provider) |
@@ -76,7 +76,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 ```
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
-uv tool run pytest -q tests/                     # 193 passed, 1 skipped (2026-10-29)
+uv tool run pytest -q tests/                     # 226 passed, 1 skipped (2026-10-29)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário
 # v2.1.4 e devolveu JSON estrito; o NDJSON real foi reproduzido no caminho de
 # evidência (artefato PASS -> critérios -> done). Nova chamada ao vivo: HTTP

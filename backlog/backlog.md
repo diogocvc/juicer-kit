@@ -77,21 +77,21 @@
 
 **Priority**: P0-Critical
 
-**Status**: Pending
+**Status**: In Progress
 
 **Dependencies**: TASK-005
 
 **Acceptance Criteria**:
-- [ ] Política de alto risco exige aprovação humana antes do merge.
-- [ ] Registro contém aprovador, `task_id`, commit, tree hash, data e nota/justificativa.
-- [ ] Aprovação é válida apenas para o commit/tree registrados e é invalidada por novo commit.
-- [ ] Aprovação humana não altera o resultado de gates técnicos.
-- [ ] `--approve` sozinho não permite aprovação anônima ou sem vínculo.
-- [ ] Notas não armazenam segredos.
+- [x] Política de alto risco exige aprovação humana antes do merge. (implementado 2026-10-29: `risk_level=high`, `human_approval_required`, gate `approval` ou critério `human` disparam a exigência; `tests/test_approval.py`)
+- [x] Registro contém aprovador, `task_id`, commit, tree hash, data e nota/justificativa. (`juicer approve` grava `.juicer/approvals/<task>/approval.json` + evento `human_approval_recorded`)
+- [x] Aprovação é válida apenas para o commit/tree registrados e é invalidada por novo commit. (commit/tree divergentes → `NOT RUN`; envelope inválido/anônimo → `BLOCKED`)
+- [x] Aprovação humana não altera o resultado de gates técnicos. (testado: FAIL técnico com aprovação gravada → `blocked`, sem merge; aprovação avaliada após gates canônicos)
+- [x] `--approve` sozinho não permite aprovação anônima ou sem vínculo. (`integrate --approve` sem registro válido → `GateBlockedError`; `--approver` obrigatório no CLI)
+- [x] Notas não armazenam segredos. (`validate_free_text` recusa padrões de credencial em `note`/`reason` antes de gravar)
 
-**Estimated Effort**: 1–1,5 dev-day
+**Estimated Effort**: 1–1,5 dev-day (executado 2026-10-29)
 
-**Notes**: Ver seção 7 do plano. A aprovação pode ser registrada pelo CLI, sem novo agente.
+**Notes**: Ver seção 7 do plano. A aprovação é registrada pelo CLI (`juicer approve`), sem novo agente. Trabalho no working tree (não commitado): `juicer/approval.py` (novo), `ApprovalError` em `errors.py`, `approve()`/`_approval_triggers`/`_approval_required`/`_evaluate_approval` no orchestrator, gate `approval` agora exige registro vinculado, critério `human` avaliado pelo registro, CLI `approve`. Testes: `tests/test_approval.py` (26), `test_integrate.py`, `test_criteria.py`, `test_cli.py`. Revisão @reviewer: **Approved with minor suggestions** — sugestões 🟡 aplicadas (param `approval_status` obrigatório, testes de caminho de leitura/tampering, mensagem acionável do gate) e registradas as adiadas (nomes de gate desconhecidos em `required_gates` e branch-tip vs commit aprovado → TASK-007; ver review na sessão). Suíte: 226 passed, 1 skipped.
 
 ---
 

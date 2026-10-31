@@ -158,6 +158,50 @@ def test_cli_integrate_refuses_non_completed_task(repo):
     assert "Traceback" not in proc.stderr
 
 
+def test_cli_approve_requires_explicit_approver(repo):
+    _ready_repo_with_task(repo)
+    # argparse refuses the anonymous path: --approver is mandatory
+    proc = run_cli(["approve", "TASK-001"], repo)
+    assert proc.returncode == 2
+    assert "--approver" in proc.stderr
+
+
+def test_cli_approve_without_commit_is_clean_error(repo):
+    _ready_repo_with_task(repo)  # task never ran: nothing to approve
+    proc = run_cli(["approve", "TASK-001", "--approver", "alice"], repo)
+    assert proc.returncode == 2
+    assert "error:" in proc.stderr
+    assert "commit" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_cli_approve_refuses_anonymous_approver(repo):
+    _ready_repo_with_task(repo)
+    # identity is validated before anything else: exit 2, no traceback
+    proc = run_cli(["approve", "TASK-001", "--approver", "anonymous"], repo)
+    assert proc.returncode == 2
+    assert "anonymous" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_cli_approve_wires_to_core(repo, monkeypatch, capsys):
+    from juicer import cli
+    calls = {}
+
+    def fake_approve(self, task, approver, reason=None, note=None):
+        calls.update(task=task, approver=approver, reason=reason, note=note)
+        return {"approver": approver, "task_id": task}
+
+    monkeypatch.setattr(cli.Juicer, "approve", fake_approve)
+    rc = cli.main(["--root", str(repo), "approve", "TASK-001",
+                   "--approver", "alice", "--reason", "release checklist",
+                   "--note", "diff reviewed"])
+    assert rc == 0
+    assert calls == {"task": "TASK-001", "approver": "alice",
+                     "reason": "release checklist", "note": "diff reviewed"}
+    assert json.loads(capsys.readouterr().out)["approver"] == "alice"
+
+
 def test_cli_review_run_wires_to_core(repo, monkeypatch, capsys):
     from juicer import cli
     calls = {}
