@@ -71,32 +71,6 @@
 
 ---
 
-### Task: [TASK-007] Reforçar isolamento, escopo, caminhos protegidos e fronteira de permissões V2
-
-**Description**: Validar o diff completo da execução, detectar commits e arquivos não rastreados criados pelo agente, bloquear caminhos protegidos e impedir alterações fora do escopo. Distinguir explicitamente permissões do OpenCode V2 (allow/ask/deny no config) dos gates, escopo e validações do core: permissões do harness são barreira adicional, nunca substituto da verificação interna.
-
-**Priority**: P0-Critical
-
-**Status**: Pending
-
-**Dependencies**: TASK-003
-
-**Acceptance Criteria**:
-- [ ] Execução registra `base_commit`, `head_commit`, `tree_hash` e branch.
-- [ ] Escopo considera arquivos rastreados, não rastreados e commits feitos pelo agente.
-- [ ] `.juicer/`, `.git/`, segredos e caminhos declarados pela política são protegidos **no core**, independentemente de política de permissões do OpenCode.
-- [ ] Commit feito pelo agente é detectado e falha por padrão, salvo política explícita.
-- [ ] Árvore de destino suja bloqueia integração sem sobrescrever mudanças pré-existentes.
-- [ ] Worktree e branch não são removidos antes de registrar evidência.
-- [ ] Concorrência permanece serial por padrão até testes comprovarem isolamento.
-- [ ] Política de permissões V2 (quando aplicada) não é tratada como evidência de gates nem reduz os checks do core; testes cobrem a fronteira.
-
-**Estimated Effort**: 2–3 dev-days
-
-**Notes**: Ver seção 8 do plano e decisão D8. A validação atual de escopo cobre apenas parte do diff. Não depender de permissões do harness para garantias de isolamento.
-
----
-
 ### Task: [TASK-008] Corrigir retry, conflitos, pós-merge e recuperação
 
 **Description**: Preservar evidências em retry, permitir retomada de `blocked`, abortar conflitos sem merge parcial, mover falha pós-merge para `blocked` e reconciliar estado após interrupção.
