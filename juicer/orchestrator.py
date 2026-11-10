@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -17,12 +18,14 @@ from . import approval as approval_mod
 from . import checks as checks_mod
 from . import evidence as evidence_mod
 from . import gitops
+from . import scope as scope_mod
 from .errors import GateBlockedError, JuicerError, ScopeViolationError, ValidationError
 from .gates import CHECK_STATUSES, WORST, evaluate_gate, latest_by_check_id, require_gate
 from .graph import detect_cycle, eligible_tasks, topo_waves
 from .model import (
-    EXECUTION_TRANSITIONS, TASK_TRANSITIONS, check_transition, new_execution,
-    new_mission, new_task, validate_execution, validate_mission, validate_task,
+    EXECUTION_TRANSITIONS, GATE_NAMES, TASK_TRANSITIONS, check_transition,
+    new_execution, new_mission, new_task, validate_execution, validate_mission,
+    validate_task,
 )
 from .scheduler import RunOutcome, Scheduler
 from .state import (
@@ -261,6 +264,7 @@ class Juicer:
                 approval_policy=spec.get("approval_policy"),
                 agent=spec.get("agent", self.config().get("agent_default", "coder")),
                 checks=spec.get("checks", []),
+                allow_agent_commits=spec.get("allow_agent_commits", False),
             )
             candidates[tid] = task
             made.append(task)
@@ -397,23 +401,48 @@ class Juicer:
         wt_root = self.root / cfg.get("worktree_root", ".juicer/worktrees")
         worktree = wt_root / task_id
         base_commit = gitops.head_commit(self.root)
+
+        # AC6: a previous attempt is recorded before its worktree/branch is
+        # removed. Evidence (commit/tree/diff) is never destroyed silently.
+        if worktree.exists() or gitops.branch_exists(self.root, branch):
+            self._preserve_prior_attempt(task_id, worktree, branch, base_commit)
+
         execution = new_execution(
             "RUN-PLACEHOLDER", task_id,
             worker={"id": "local", "harness": cfg.get("harness", "opencode")},
             workspace={"branch": branch, "base_commit": base_commit,
-                       "worktree": str(worktree)},
+                       "worktree": str(worktree), "agent_head_commit": None,
+                       "head_commit": None, "tree_hash": None},
         )
         exec_id = self._new_execution_id(task_id, execution)
-
-        if worktree.exists():
-            gitops.remove_worktree(self.root, worktree, force=True)
-        ensure_dir(wt_root)
-        gitops.create_worktree(self.root, branch, worktree, base=base_commit, new_branch=True)
 
         self._update_task(task_id, lambda t: t.update(
             status="in_progress", current_execution_id=exec_id))
         self._update_execution(exec_id, lambda e: e.update(
             status="running", started_at=utc_now()))
+        try:
+            if worktree.exists():
+                gitops.remove_worktree(self.root, worktree, force=True)
+            ensure_dir(wt_root)
+            gitops.create_worktree(self.root, branch, worktree,
+                                   base=base_commit, new_branch=True)
+        except gitops.GitError as exc:
+            # A stale/corrupted worktree must fail cleanly, not leave the task
+            # `in_progress` with a dangling `running` execution.
+            detail = "worktree setup failed: %s" % exc
+            self._update_task(task_id, lambda t: t.update(
+                status="failed",
+                result={"detail": detail, "branch": branch,
+                        "base_commit": base_commit, "workspace_error": True},
+                attempt_count=t["attempt_count"] + 1))
+            self._update_execution(exec_id, lambda e: e.update(
+                status="failed", finished_at=utc_now(),
+                failure={"detail": detail, "exit_code": None}))
+            self._event("task_failed", task_id=task_id, execution_id=exec_id,
+                        data={"detail": detail}, outcome="failed")
+            return RunOutcome(task_id=task_id, ok=False, detail=detail,
+                              data={"branch": branch, "base_commit": base_commit})
+
         self._event("task_started", task_id=task_id, execution_id=exec_id,
                     data={"branch": branch, "base_commit": base_commit})
 
@@ -428,24 +457,107 @@ class Juicer:
 
         evidence_path = self.evidence_dir / ("%s.output.txt" % exec_id)
         atomic_write_text(evidence_path, outcome.get("output") or outcome.get("detail") or "")
-        diff = gitops.diff_stat(worktree)
-        changed = gitops.changed_files(worktree)
+
+        # AC1/AC4: sample the agent HEAD before the coordinator commits so an
+        # agent-created commit is visible even if another commit is added.
+        worktree_ok = gitops.is_worktree_root(worktree)
+        agent_head = gitops.head_commit(worktree) if worktree_ok else None
+        agent_committed = bool(base_commit and agent_head and agent_head != base_commit)
+
+        # AC10: a deleted/corrupted worktree must fail closed, never be
+        # recorded as a successful run without a commit.
+        if outcome.get("ok") and not worktree_ok:
+            outcome = {
+                "ok": False, "status": "FAIL", "exit_code": outcome.get("exit_code"),
+                "detail": "worktree %s is missing or not a git repository after "
+                          "the agent run; refusing to record evidence"
+                          % worktree,
+                "session_id": outcome.get("session_id"),
+                "output": outcome.get("output", ""),
+            }
+
+        if worktree_ok:
+            # Intent-to-add makes untracked content visible in the diff/stat
+            # evidence; commit_all() stages everything afterwards anyway.
+            gitops.intent_to_add(worktree)
+        diff = gitops.diff_stat(worktree, base=base_commit) if worktree_ok else ""
+        changed = (gitops.changed_files(worktree, base=base_commit)
+                   if worktree_ok else [])
+        touched: List[str] = []
         commit = None
-        if outcome.get("ok") and changed:
+
+        if outcome.get("ok") and agent_committed and not scope_mod.agent_commits_allowed(task, cfg):
+            outcome = {
+                "ok": False, "status": "FAIL", "exit_code": outcome.get("exit_code"),
+                "detail": "agent created commit(s) (HEAD %s != base %s); commits by "
+                          "the agent are forbidden unless the task policy allows "
+                          "them" % (agent_head, base_commit),
+                "session_id": outcome.get("session_id"),
+                "output": outcome.get("output", ""),
+            }
+
+        if outcome.get("ok"):
+            coordinator_commit = None
             try:
-                self._check_scope(task, changed)
-                commit = gitops.commit_all(
+                # Stage first and validate the exact index that would be
+                # committed: a violation never creates a real commit on the
+                # task branch. `changed_in_range` also covers intermediate
+                # commits (a protected file added and later deleted is still
+                # part of the merge history).
+                gitops.stage_all(worktree)
+                staged = gitops.staged_changed(worktree, base_commit)
+                final_changed = gitops.changed_files(worktree, base=base_commit)
+                history = (gitops.changed_in_range(worktree, base_commit, agent_head)
+                           if agent_committed else [])
+                self._check_scope(task, sorted(set(final_changed) | set(staged)
+                                               | set(history)), cfg)
+                coordinator_commit = gitops.commit_index(
                     worktree, "%s: %s" % (task_id, task["title"]))
+                final_head = gitops.head_commit(worktree) or agent_head
+                if coordinator_commit:
+                    # A commit landing between the agent_head sample and the
+                    # coordinator commit would become its parent: that is an
+                    # agent-made commit even though HEAD is ours.
+                    if gitops.parent_commit(worktree, coordinator_commit) != agent_head:
+                        agent_committed = True
+                if final_head != (coordinator_commit or agent_head):
+                    agent_committed = True
+                if agent_committed and not scope_mod.agent_commits_allowed(task, cfg):
+                    raise ScopeViolationError(
+                        "agent created commit(s) (HEAD %s != base %s); "
+                        "commits by the agent are forbidden unless the task "
+                        "policy allows them" % (final_head, base_commit))
+                # Post-commit guard: the branch may have moved while committing.
+                touched = gitops.changed_in_range(worktree, base_commit, final_head)
+                self._check_scope(task, sorted(set(touched) | set(final_changed)), cfg)
+                changed = final_changed
+                commit = final_head
             except (ScopeViolationError, gitops.GitError) as exc:
+                # Never leave a coordinator-created commit with rejected
+                # content pinned on the task branch.
+                if coordinator_commit:
+                    gitops.reset_soft(worktree, agent_head)
                 outcome = {"ok": False, "status": "FAIL", "exit_code": None,
                            "detail": "scope/commit failure: %s" % exc,
-                           "session_id": outcome.get("session_id"), "output": outcome.get("output", "")}
-        elif outcome.get("ok") and not changed:
-            # No code change: still a valid outcome for analysis tasks.
-            commit = gitops.head_commit(worktree)
+                           "session_id": outcome.get("session_id"),
+                           "output": outcome.get("output", "")}
 
-        check_results = self._run_task_checks(task, worktree, commit)
+        final_head = gitops.head_commit(worktree) if worktree_ok else agent_head
+        tree_hash = gitops.tree_hash(worktree, commit) if commit else None
 
+        check_results = self._run_task_checks(task, worktree, commit) if worktree_ok else []
+
+        no_changes = bool(commit and base_commit and commit == base_commit)
+        workspace_state = {
+            "branch": branch,
+            "base_commit": base_commit,
+            "worktree": str(worktree),
+            "agent_head_commit": agent_head,
+            "head_commit": final_head,
+            "tree_hash": tree_hash,
+            "touched_files": touched,
+            "no_changes": no_changes,
+        }
         result = {
             "execution_id": exec_id,
             "exit_code": outcome.get("exit_code"),
@@ -455,9 +567,15 @@ class Juicer:
             "evidence_ref": str(evidence_path),
             "branch": branch,
             "base_commit": base_commit,
+            "agent_head_commit": agent_head,
+            "head_commit": final_head,
+            "tree_hash": tree_hash,
             "commit": commit,
+            "no_changes": no_changes,
             "diff_stat": diff,
             "changed_files": changed,
+            "touched_files": touched,
+            "agent_committed": agent_committed,
             "checks": check_results,
         }
         if outcome.get("ok"):
@@ -465,9 +583,12 @@ class Juicer:
                 status="completed", result=result,
                 attempt_count=t["attempt_count"] + 1))
             self._update_execution(exec_id, lambda e: e.update(
-                status="succeeded", finished_at=utc_now(), result=result))
+                status="succeeded", finished_at=utc_now(), result=result,
+                workspace={**e.get("workspace", {}), **workspace_state}))
             self._event("task_completed", task_id=task_id, execution_id=exec_id,
-                        data={"commit": commit, "checks": [c["status"] for c in check_results]},
+                        data={"commit": commit, "head_commit": final_head,
+                              "tree_hash": tree_hash,
+                              "checks": [c["status"] for c in check_results]},
                         outcome="completed")
             return RunOutcome(task_id=task_id, ok=True, detail=outcome.get("detail", ""),
                               data=result)
@@ -477,9 +598,13 @@ class Juicer:
                 attempt_count=t["attempt_count"] + 1))
             self._update_execution(exec_id, lambda e: e.update(
                 status="failed", finished_at=utc_now(),
-                failure={"detail": outcome.get("detail"), "exit_code": outcome.get("exit_code")}))
+                result=result,
+                failure={"detail": outcome.get("detail"), "exit_code": outcome.get("exit_code")},
+                workspace={**e.get("workspace", {}), **workspace_state}))
             self._event("task_failed", task_id=task_id, execution_id=exec_id,
-                        data={"detail": outcome.get("detail")}, outcome="failed")
+                        data={"detail": outcome.get("detail"),
+                              "head_commit": final_head, "tree_hash": tree_hash},
+                        outcome="failed")
             return RunOutcome(task_id=task_id, ok=False, detail=outcome.get("detail", ""),
                               data=result)
 
@@ -490,6 +615,56 @@ class Juicer:
         validate_execution(execution)
         write_json(self.executions_dir / ("%s.json" % exec_id), execution)
         return exec_id
+
+    def _preserve_prior_attempt(self, task_id: str, worktree: Path,
+                                branch: str, base_commit: Optional[str]) -> dict:
+        """Record a previous worktree/branch as evidence before removing it.
+
+        AC6: the core must never delete a worktree or branch before the
+        previous attempt is auditable. The record captures HEAD/tree, dirty
+        state, changed files, an uncommitted patch (including untracked files)
+        and a durable ref to the branch tip, so nothing is orphaned for GC.
+        """
+        stamp = uuid.uuid4().hex[:12]
+        record = {
+            "schema_version": 1,
+            "type": "preserved_attempt",
+            "task_id": task_id,
+            "recorded_at": utc_now(),
+            "branch": branch,
+            "base_commit": base_commit,
+            "worktree": str(worktree),
+            "worktree_exists": worktree.exists(),
+        }
+        if worktree.exists():
+            record["worktree_valid"] = gitops.is_worktree_root(worktree)
+        if worktree.exists() and record["worktree_valid"]:
+            record["head_commit"] = gitops.head_commit(worktree)
+            record["tree_hash"] = gitops.tree_hash(worktree)
+            record["dirty"] = gitops.is_dirty(worktree)
+            record["diff_stat"] = gitops.diff_stat(worktree)
+            record["changed_files"] = gitops.changed_files(worktree)
+            # intent-to-add makes untracked content visible to `git diff`, so
+            # the patch is real evidence instead of a list of names.
+            gitops.intent_to_add(worktree)
+            patch_path = self.evidence_dir / task_id / ("preserved-%s.diff" % stamp)
+            atomic_write_text(patch_path, gitops.diff_against(worktree, "HEAD"))
+            record["diff_ref"] = str(patch_path)
+        if gitops.branch_exists(self.root, branch):
+            record["branch_tip"] = gitops.branch_tip(self.root, branch)
+            if record["branch_tip"]:
+                ref = "refs/juicer/attempts/%s/%s" % (task_id, stamp)
+                if gitops.update_ref(self.root, ref, record["branch_tip"]):
+                    record["preserved_ref"] = ref
+        path = self.evidence_dir / task_id / ("preserved-%s.json" % stamp)
+        write_json(path, record)
+        self._event("attempt_preserved", task_id=task_id,
+                    data={"artifact_ref": str(path),
+                          "branch_tip": record.get("branch_tip"),
+                          "preserved_ref": record.get("preserved_ref"),
+                          "head_commit": record.get("head_commit")},
+                    outcome="preserved")
+        return record
 
     def _update_execution(self, exec_id: str, mutator) -> dict:
         path = self.executions_dir / ("%s.json" % exec_id)
@@ -509,27 +684,18 @@ class Juicer:
             raise JuicerError("unknown execution %s" % exec_id)
         return doc
 
-    def _check_scope(self, task: dict, changed_files: List[str]) -> None:
+    def _check_scope(self, task: dict, changed_files: List[str],
+                     config: Optional[dict] = None) -> None:
+        # AC3: protected paths are always enforced, even when no scope is
+        # declared and regardless of the harness permission policy.
+        scope_mod.check_protected(task, changed_files, config)
         paths = (task.get("scope") or {}).get("paths") or []
         if not paths:
             return
-        import fnmatch
-
-        def matches(path: str, pattern: str) -> bool:
-            # Exact glob match first.
-            if fnmatch.fnmatch(path, pattern):
-                return True
-            # Directory pattern ("src" or "src/") matches only inside that
-            # directory: the path itself or a path under "<dir>/".
-            # M-3: prefix must respect path boundaries so "src/" never
-            # matches "srcx/evil.py".
-            base = pattern.rstrip("/")
-            if base and (path == base or path.startswith(base + "/")):
-                return True
-            return False
-
+        # M-3: prefix matches respect path boundaries so "src/" never matches
+        # "srcx/evil.py".
         for f in changed_files:
-            if not any(matches(f, pat) for pat in paths):
+            if not any(scope_mod.path_matches(f, pat, basename=False) for pat in paths):
                 raise ScopeViolationError(
                     "task %s changed file outside scope: %s (scope: %s)"
                     % (task["id"], f, paths))
@@ -642,13 +808,87 @@ class Juicer:
         result = task.get("result") or {}
         commit = result.get("commit")
         branch = result.get("branch")
+        base_commit = result.get("base_commit")
         if not commit or not branch:
             # M-1: fail cleanly instead of crashing later in merge/parsing.
             raise GateBlockedError(
                 "task %s has no commit/branch in result (result=%s); "
                 "re-run the task or restore the execution result before "
                 "integrating" % (task_id, sorted(result)), gate_status="BLOCKED")
+        # Fail closed: the protected/scope re-check needs a verifiable range.
+        # A missing or tampered base_commit must block, never skip the check.
+        if not base_commit or not gitops.is_commit(self.root, base_commit):
+            raise GateBlockedError(
+                "task %s has no verifiable base_commit in result (%r); refusing "
+                "to integrate without a diff range"
+                % (task_id, base_commit), gate_status="BLOCKED")
+        if not gitops.is_commit(self.root, commit):
+            raise GateBlockedError(
+                "task %s evidences commit %r, which does not resolve; refusing "
+                "to integrate" % (task_id, commit), gate_status="BLOCKED")
+
+        # The range must be real: base == commit would silently skip the
+        # history re-check, and a non-ancestor base would describe a diff the
+        # task never produced. `no_changes` must mean exactly commit == base.
+        no_changes = bool(result.get("no_changes"))
+        if not gitops.is_ancestor(self.root, base_commit, commit):
+            raise GateBlockedError(
+                "task %s base_commit %s is not an ancestor of the evidenced "
+                "commit %s; refusing to integrate an unverifiable range"
+                % (task_id, base_commit, commit), gate_status="BLOCKED")
+        if no_changes and commit != base_commit:
+            raise GateBlockedError(
+                "task %s is marked no_changes but commit %s differs from base %s; "
+                "refusing to integrate" % (task_id, commit, base_commit),
+                gate_status="BLOCKED")
+        if not no_changes and commit == base_commit:
+            raise GateBlockedError(
+                "task %s evidences no commit beyond base %s; refusing to skip "
+                "the history re-check" % (task_id, base_commit),
+                gate_status="BLOCKED")
+        exec_id = result.get("execution_id")
+        if exec_id:
+            try:
+                execution = self.load_execution(exec_id)
+            except JuicerError as exc:
+                raise GateBlockedError(
+                    "task %s references execution %s that cannot be loaded: %s"
+                    % (task_id, exec_id, exc), gate_status="BLOCKED")
+            workspace = execution.get("workspace") or {}
+            recorded_base = workspace.get("base_commit")
+            if recorded_base and recorded_base != base_commit:
+                raise GateBlockedError(
+                    "task %s base_commit %s disagrees with the execution record "
+                    "%s; refusing to integrate" % (task_id, base_commit,
+                                                   recorded_base),
+                    gate_status="BLOCKED")
+            if bool(workspace.get("no_changes")) != no_changes:
+                raise GateBlockedError(
+                    "task %s no_changes flag disagrees with the execution record; "
+                    "refusing to integrate" % task_id, gate_status="BLOCKED")
         tree_hash = gitops.tree_hash(self.root, commit)
+
+        # Branch tip vs evidenced commit: a branch that moved after the run
+        # must never merge code the evidence/approval does not cover.
+        branch_tip = gitops.branch_tip(self.root, branch)
+        if branch_tip != commit:
+            raise GateBlockedError(
+                "branch %s points at %s, not the evidenced commit %s; refusing "
+                "to merge an unevidenced commit" % (branch, branch_tip, commit),
+                gate_status="BLOCKED")
+
+        # Protected paths and scope are re-checked over every committed path in
+        # base..commit at merge time (intermediate commits included); a
+        # tampered or stale result cannot bypass the run-time check.
+        try:
+            committed_changed = sorted(
+                set(gitops.changed_in_range(self.root, base_commit, commit))
+                | set(gitops.changed_between(self.root, base_commit, commit)))
+            self._check_scope(task, committed_changed, self.config())
+        except (ScopeViolationError, gitops.GitError) as exc:
+            raise GateBlockedError(
+                "integration blocked for %s: %s" % (task_id, exc),
+                gate_status="BLOCKED")
 
         # Human approval record for this commit/tree (plan §7): evaluated once,
         # enforced by the approval gate and by the explicit-merge checks below.
@@ -657,6 +897,13 @@ class Juicer:
 
         # --- multi-gate evaluation (pre-merge, canonical order) ---
         required_gates = self._required_gates(task, result)
+        unknown = [g for g in required_gates if g not in GATE_NAMES]
+        if unknown:
+            raise GateBlockedError(
+                "task %s declares unknown required_gates: %s; refusing to "
+                "integrate rather than silently ignoring a gate"
+                % (task_id, ", ".join(str(g) for g in unknown)),
+                gate_status="BLOCKED")
         gate_results = []
         try:
             for gate_name in self.CANONICAL_GATE_ORDER:
@@ -742,7 +989,7 @@ class Juicer:
                 "integration target has uncommitted changes; commit/stash first "
                 "(never overwrite pre-existing changes)", gate_status="BLOCKED")
 
-        ok, detail = gitops.merge_no_ff(self.root, branch)
+        ok, detail = gitops.merge_no_ff(self.root, commit)
         if not ok:
             self._update_task(task_id, lambda t: t.update(status="blocked"))
             self._event("integration_conflict", task_id=task_id,

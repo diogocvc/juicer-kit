@@ -10,7 +10,7 @@ promessas de recursos futuros. Lacunas planejadas estão mapeadas em
 - Kit: **4.0.0** (core Python + kit Markdown 3.x preservado)
 - Harness alvo único: **OpenCode 2.x/V2** — versão medida no ambiente:
   **opencode v2.1.4** (`~/.opencode/bin/opencode`)
-- Data desta avaliação: 2026-10-29
+- Data desta avaliação: 2026-11-10
 
 ## Alvo e evidência
 
@@ -33,7 +33,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
 | Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
 | Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 83 testes padrão + smoke |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 260 testes padrão + smoke |
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
 | Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
 | Checks pós-integração no commit mergeado | **supported** | testes de integrate |
@@ -41,7 +41,16 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Transições TASK/EXECUTION validadas em todo update | **supported (medida)** | `check_transition` em `_update_task`/`_update_execution`; `tests/test_transitions.py` |
 | `blocked`/`failed` retomáveis com histórico | **supported (medida)** | `retry_task` + `attempt_history` |
 | Falha pós-merge → `blocked` (nunca `completed`/`done`) | **supported (medida)** | `test_post_merge_failure_*` |
-| Proteção de mudanças pré-existentes | **supported** | `test_preservation.py` |
+| Proteção de mudanças pré-existentes | **supported** | `test_preservation.py`, `tests/test_isolation.py` |
+| Execução registra `base_commit`, `agent_head_commit`, `head_commit`, `tree_hash` e branch | **supported (medida)** | `result` e `execution.workspace`; `tests/test_isolation.py` |
+| Escopo cobre rastreados + não rastreados + commits do agente | **supported (medida)** | diff contra `base_commit` (`changed_files(base)`); `tests/test_isolation.py` |
+| Caminhos protegidos bloqueados no core (`.juicer/`, `.git/`, segredos, política) | **supported (medida)** | `juicer/scope.py` + rechecagem no merge sobre todo o histórico `base..commit` (inclui commits intermediários e renames); independente de permissões V2 |
+| Commit do agente detectado e recusado por padrão | **supported (medida)** | `agent_head_commit != base_commit`; opt-in explícito via `allow_agent_commits` |
+| Worktree/branch preservados antes da remoção (retry) | **supported (medida)** | `_preserve_prior_attempt` grava HEAD/tree/diff/branch tip em `.juicer/evidence/` |
+| Concorrência serial por padrão | **supported (medida)** | `DEFAULT_CONFIG.max_jobs=1`; paralelismo só com `--jobs` explícito |
+| Fronteira permissões V2 × gates/escopo do core | **supported (medida)** | permissões `allow-all` não afetam path protegido nem gate de review; `tests/test_isolation.py` |
+| `required_gates` desconhecidos rejeitados na importação | **supported (medida)** | `validate_task` (`GATE_NAMES`); `tests/test_isolation.py` |
+| Branch tip deve coincidir com o commit evidenciado no merge | **supported (medida)** | `branch_tip == result.commit`; branch movida bloqueia integração |
 | Aprovação humana separada do gate técnico | **supported (medida)** | `juicer approve` grava registro aprovador/task/commit/tree/data/nota; `--approve` sem registro é recusado; novo commit invalida; não altera gates técnicos; alto risco exige aprovação; `tests/test_approval.py` |
 | Critérios de aceitação verificados pelo core | **supported (medida)** | `check:<id>`, `review`, `security`, `human`; evidência vinculada a commit/tree; auditoria por critério; `tests/test_criteria.py` |
 | Revisão e segurança obrigatórias no core | **supported (medida)** | `required_gates` + artefatos estruturados + gate; `tests/test_integrate.py`, `tests/test_evidence.py` |
@@ -70,13 +79,24 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
    PASS, integração explícita e checks pós-merge PASS.
 6. **Permissões V2 ≠ gates**: política `permissions[]` do OpenCode é barreira
    adicional; escopo, evidência e aprovação permanecem no core.
+7. **Escrita fora do worktree**: o agente executa em
+   `.juicer/worktrees/<task>`, dentro do diretório de estado. O core valida o
+   diff/branch do worktree; escrita direta em `.juicer/` por processos do
+   agente não aparece nesse diff e depende da barreira de permissões/sandbox do
+   harness. Configure `permissions[]` com `deny` para escrita fora do cwd; a
+   permissão continua sendo barreira adicional, nunca evidência.
+8. **Evidência preservada pode conter segredo**: o patch de uma tentativa
+   anterior (`preserved-*.diff`) captura o conteúdo do worktree, inclusive um
+   arquivo sensível que o agente tenha escrito. Isso é intencional para
+   auditoria; restrinja o acesso a `.juicer/` e trate esses artefatos como
+   sensíveis.
 
 ## Comandos de verificação executados
 
 ```
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
-uv tool run pytest -q tests/                     # 226 passed, 1 skipped (2026-10-29)
+uv tool run pytest -q tests/                     # 260 passed, 1 skipped (2026-11-10)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário
 # v2.1.4 e devolveu JSON estrito; o NDJSON real foi reproduzido no caminho de
 # evidência (artefato PASS -> critérios -> done). Nova chamada ao vivo: HTTP
