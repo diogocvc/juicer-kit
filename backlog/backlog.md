@@ -71,30 +71,6 @@
 
 ---
 
-### Task: [TASK-008] Corrigir retry, conflitos, pós-merge e recuperação
-
-**Description**: Preservar evidências em retry, permitir retomada de `blocked`, abortar conflitos sem merge parcial, mover falha pós-merge para `blocked` e reconciliar estado após interrupção.
-
-**Priority**: P1-High
-
-**Status**: Pending
-
-**Dependencies**: TASK-004, TASK-007
-
-**Acceptance Criteria**:
-- [ ] Retry cria nova execução sem apagar a anterior e evita colisão de branch/worktree.
-- [ ] `blocked` e `failed` são retomáveis conforme política; `done` não é.
-- [ ] `resume` reconcilia execuções interrompidas e não inicia duplicadamente.
-- [ ] Falha pós-merge move a tarefa para `blocked` e registra commit integrado.
-- [ ] Conflito de merge aborta sem merge parcial e exige intervenção explícita.
-- [ ] Checkpoint registra próximo passo e evidência para auditoria.
-
-**Estimated Effort**: 2–3 dev-days
-
-**Notes**: Ver seção 10 do plano. O fluxo atual pode deixar `completed` após falha pós-merge.
-
----
-
 ### Task: [TASK-009] Implementar importação unidirecional do backlog
 
 **Description**: Importar tarefas do backlog Markdown para uma missão com validação de IDs, dependências, prioridades, critérios e escopo; após a importação, `.juicer/` é canônico e não há sincronização bidirecional silenciosa.
