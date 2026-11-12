@@ -33,20 +33,23 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
 | Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
 | Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 260 testes padrão + smoke |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 271 testes padrão + smoke |
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
 | Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
 | Checks pós-integração no commit mergeado | **supported** | testes de integrate |
-| Retomada após reinício (checkpoint/resume) | **supported (medida)** | `resume` reconcilia execução e worktree; interrompido+worktree → `blocked`; sem worktree → `failed`; execução terminal alinha a tarefa |
+| Retomada após reinício (checkpoint/resume) | **supported (medida)** | `resume` reconcilia execução e worktree; interrompido+worktree → `blocked`; sem worktree → `failed`; execução terminal alinha a tarefa; histórico + relatório `.juicer/evidence/resume-*.json`; execução de outra tarefa é ignorada; `tests/test_recovery.py` |
 | Transições TASK/EXECUTION validadas em todo update | **supported (medida)** | `check_transition` em `_update_task`/`_update_execution`; `tests/test_transitions.py` |
-| `blocked`/`failed` retomáveis com histórico | **supported (medida)** | `retry_task` + `attempt_history` |
-| Falha pós-merge → `blocked` (nunca `completed`/`done`) | **supported (medida)** | `test_post_merge_failure_*` |
+| `blocked`/`failed` retomáveis com histórico | **supported (medida)** | `retry_task` + `attempt_history` (execução/branch/worktree/commit anteriores preservados) |
+| Retry não colide e preserva tentativa anterior | **supported (medida)** | nova tentativa usa `juicer/<task>-attempt-<n>` e worktree próprio, inclusive após interrupção/`resume`; tentativa anterior e branch permanecem auditáveis; `tests/test_recovery.py` |
+| Falha pós-merge → `blocked` (nunca `completed`/`done`) | **supported (medida)** | `result.merged_commit` + `post_merge_gate` registrados; `test_post_merge_failure_*` |
+| Conflito de merge aborta sem merge parcial | **supported (medida)** | `merge --abort`; `blocked_reason` com commit/branch; `partial_merge` no evento; merge já em andamento não é abortado; intervenção explícita; `tests/test_recovery.py` |
+| Checkpoint registra próximo passo e evidência | **supported (medida)** | por tarefa: `status`, `next_step`, `blocked_reason`, execução/branch/commit/tree/merged; `tests/test_recovery.py` |
 | Proteção de mudanças pré-existentes | **supported** | `test_preservation.py`, `tests/test_isolation.py` |
 | Execução registra `base_commit`, `agent_head_commit`, `head_commit`, `tree_hash` e branch | **supported (medida)** | `result` e `execution.workspace`; `tests/test_isolation.py` |
 | Escopo cobre rastreados + não rastreados + commits do agente | **supported (medida)** | diff contra `base_commit` (`changed_files(base)`); `tests/test_isolation.py` |
 | Caminhos protegidos bloqueados no core (`.juicer/`, `.git/`, segredos, política) | **supported (medida)** | `juicer/scope.py` + rechecagem no merge sobre todo o histórico `base..commit` (inclui commits intermediários e renames); independente de permissões V2 |
 | Commit do agente detectado e recusado por padrão | **supported (medida)** | `agent_head_commit != base_commit`; opt-in explícito via `allow_agent_commits` |
-| Worktree/branch preservados antes da remoção (retry) | **supported (medida)** | `_preserve_prior_attempt` grava HEAD/tree/diff/branch tip em `.juicer/evidence/` |
+| Worktree/branch preservados antes da remoção (retry) | **supported (medida)** | `_preserve_prior_attempt` grava HEAD/tree/diff/branch tip e ref durável em `.juicer/evidence/`; falha do ref gera `attempt_preservation_degraded` |
 | Concorrência serial por padrão | **supported (medida)** | `DEFAULT_CONFIG.max_jobs=1`; paralelismo só com `--jobs` explícito |
 | Fronteira permissões V2 × gates/escopo do core | **supported (medida)** | permissões `allow-all` não afetam path protegido nem gate de review; `tests/test_isolation.py` |
 | `required_gates` desconhecidos rejeitados na importação | **supported (medida)** | `validate_task` (`GATE_NAMES`); `tests/test_isolation.py` |
@@ -96,7 +99,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 ```
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
-uv tool run pytest -q tests/                     # 260 passed, 1 skipped (2026-11-10)
+uv tool run pytest -q tests/                     # 271 passed (2026-11-11)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário
 # v2.1.4 e devolveu JSON estrito; o NDJSON real foi reproduzido no caminho de
 # evidência (artefato PASS -> critérios -> done). Nova chamada ao vivo: HTTP

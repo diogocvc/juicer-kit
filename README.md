@@ -178,7 +178,7 @@ python3 bin/juicer integrate TASK-001
 | `juicer decompose tasks.json` | Validate and register tasks (stable IDs, dependencies) |
 | `juicer status` | Mission state, eligibility, next action |
 | `juicer run [TASK-ID] [--jobs N]` | Execute eligible tasks (parallel or serial, with recorded reason) |
-| `juicer retry TASK-ID` | Re-run a failed task (new attempt, same identity) |
+| `juicer retry TASK-ID` | Re-run a failed or blocked task (new attempt, preserving history) |
 | `juicer review TASK-ID --commit --tree-hash` | Record a structured review artifact (manual or external agent) |
 | `juicer security TASK-ID --commit --tree-hash` | Record a structured security artifact |
 | `juicer review-run TASK-ID` | Trigger the existing `@reviewer`, record evidence from its JSON output |

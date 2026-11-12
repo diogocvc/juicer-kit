@@ -247,7 +247,7 @@ def build_parser():
     sp.add_argument("--jobs", type=int, default=None, help="parallel workers")
     sp.set_defaults(fn=cmd_run)
 
-    sp = sub.add_parser("retry", help="return a failed task to ready")
+    sp = sub.add_parser("retry", help="return a failed or blocked task to ready")
     sp.add_argument("task")
     sp.set_defaults(fn=cmd_retry)
 

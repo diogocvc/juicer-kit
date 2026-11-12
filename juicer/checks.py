@@ -58,7 +58,7 @@ def run_check(check_id: str, command: List[str], task_id: str, cwd: Path,
     log_ref = None
     if log_dir is not None:
         ensure_dir(log_dir)
-        log_path = Path(log_dir) / ("%s.log" % check_id)
+        log_path = Path(log_dir) / ("%s-%s.log" % (check_id, phase))
         atomic_write_text(log_path, result.get("output") or "")
         log_ref = str(log_path)
     summary = (result.get("output") or "").strip().splitlines()

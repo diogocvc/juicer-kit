@@ -346,6 +346,10 @@ class Juicer:
             return "decompose the mission into tasks (juicer decompose tasks.json)"
         if eligible:
             return "run eligible tasks: %s" % ", ".join(eligible)
+        in_progress = [t for t in tasks if t["status"] == "in_progress"]
+        if in_progress:
+            return "resume in-progress tasks: %s" % ", ".join(
+                t["id"] for t in in_progress)
         completed = [t for t in tasks if t["status"] == "completed"]
         if completed:
             return "review and integrate: %s" % ", ".join(t["id"] for t in completed)
@@ -396,16 +400,33 @@ class Juicer:
                               detail="dependencies not done: %s" % ", ".join(missing))
         mission = self.require_ready_mission()
         cfg = self.config()
-
-        branch = "juicer/%s" % task_id
         wt_root = self.root / cfg.get("worktree_root", ".juicer/worktrees")
-        worktree = wt_root / task_id
-        base_commit = gitops.head_commit(self.root)
 
-        # AC6: a previous attempt is recorded before its worktree/branch is
-        # removed. Evidence (commit/tree/diff) is never destroyed silently.
-        if worktree.exists() or gitops.branch_exists(self.root, branch):
-            self._preserve_prior_attempt(task_id, worktree, branch, base_commit)
+        branch, worktree = self._attempt_names(task_id, 1)
+        base_commit = gitops.head_commit(self.root)
+        attempt = self._next_attempt(task)
+        if attempt != 1:
+            # A retry never reuses the previous branch/worktree: evidence from
+            # the previous attempt stays intact and the names cannot collide.
+            # Dash (not slash) avoids the git ref file/directory conflict with
+            # the previous branch `juicer/<task>`.
+            branch, worktree = self._attempt_names(task_id, attempt)
+
+        # AC6 (TASK-007): preserve the previous attempt before anything is
+        # removed, even though retries now use distinct names. The previous
+        # attempt is taken from attempt history/execution; the canonical path
+        # is only a fallback for legacy state without a recorded attempt.
+        previous = self._previous_attempt(task)
+        if previous:
+            prev_worktree = (Path(previous["worktree"])
+                             if previous.get("worktree") else None)
+            self._preserve_attempt_if_any(
+                task_id, prev_worktree, previous.get("branch"),
+                previous.get("base_commit") or base_commit)
+        else:
+            legacy_branch, legacy_worktree = self._attempt_names(task_id, 1)
+            self._preserve_attempt_if_any(task_id, legacy_worktree,
+                                          legacy_branch, base_commit)
 
         execution = new_execution(
             "RUN-PLACEHOLDER", task_id,
@@ -414,6 +435,7 @@ class Juicer:
                        "worktree": str(worktree), "agent_head_commit": None,
                        "head_commit": None, "tree_hash": None},
         )
+        execution["attempt"] = attempt
         exec_id = self._new_execution_id(task_id, execution)
 
         self._update_task(task_id, lambda t: t.update(
@@ -439,12 +461,14 @@ class Juicer:
                 status="failed", finished_at=utc_now(),
                 failure={"detail": detail, "exit_code": None}))
             self._event("task_failed", task_id=task_id, execution_id=exec_id,
-                        data={"detail": detail}, outcome="failed")
+                        data={"detail": detail, "attempt": attempt},
+                        outcome="failed")
             return RunOutcome(task_id=task_id, ok=False, detail=detail,
                               data={"branch": branch, "base_commit": base_commit})
 
         self._event("task_started", task_id=task_id, execution_id=exec_id,
-                    data={"branch": branch, "base_commit": base_commit})
+                    data={"branch": branch, "base_commit": base_commit,
+                          "attempt": attempt})
 
         prompt = self._build_prompt(task, mission)
         agent = task.get("agent") or cfg.get("agent_default", "coder")
@@ -560,6 +584,7 @@ class Juicer:
         }
         result = {
             "execution_id": exec_id,
+            "attempt": attempt,
             "exit_code": outcome.get("exit_code"),
             "session_id": outcome.get("session_id"),
             "status": outcome.get("status"),
@@ -587,7 +612,7 @@ class Juicer:
                 workspace={**e.get("workspace", {}), **workspace_state}))
             self._event("task_completed", task_id=task_id, execution_id=exec_id,
                         data={"commit": commit, "head_commit": final_head,
-                              "tree_hash": tree_hash,
+                              "tree_hash": tree_hash, "attempt": attempt,
                               "checks": [c["status"] for c in check_results]},
                         outcome="completed")
             return RunOutcome(task_id=task_id, ok=True, detail=outcome.get("detail", ""),
@@ -603,7 +628,8 @@ class Juicer:
                 workspace={**e.get("workspace", {}), **workspace_state}))
             self._event("task_failed", task_id=task_id, execution_id=exec_id,
                         data={"detail": outcome.get("detail"),
-                              "head_commit": final_head, "tree_hash": tree_hash},
+                              "head_commit": final_head, "tree_hash": tree_hash,
+                              "attempt": attempt},
                         outcome="failed")
             return RunOutcome(task_id=task_id, ok=False, detail=outcome.get("detail", ""),
                               data=result)
@@ -616,8 +642,94 @@ class Juicer:
         write_json(self.executions_dir / ("%s.json" % exec_id), execution)
         return exec_id
 
-    def _preserve_prior_attempt(self, task_id: str, worktree: Path,
-                                branch: str, base_commit: Optional[str]) -> dict:
+    def _attempt_names(self, task_id: str, attempt: int):
+        """Canonical branch/worktree names for an attempt (single source)."""
+        cfg = self.config()
+        wt_root = self.root / cfg.get("worktree_root", ".juicer/worktrees")
+        if attempt == 1:
+            return "juicer/%s" % task_id, wt_root / task_id
+        return ("juicer/%s-attempt-%d" % (task_id, attempt),
+                wt_root / ("%s-attempt-%d" % (task_id, attempt)))
+
+    def _next_attempt(self, task: dict) -> int:
+        """Return a collision-free attempt number for a new run.
+
+        ``attempt_count`` only advances on terminal runs, so an interrupted
+        attempt (resumed from a stale ``in_progress`` state) would otherwise
+        reuse the previous branch/worktree name. The attempt history is also
+        considered, and existing branches/worktrees are skipped defensively.
+        """
+        task_id = task["id"]
+        attempt = int(task.get("attempt_count", 0) or 0) + 1
+        # History can advance the attempt beyond attempt_count (an interrupted
+        # run never reached a terminal path), so honor the highest recorded
+        # attempt as well.
+        for entry in task.get("attempt_history") or []:
+            recorded = entry.get("attempt")
+            if isinstance(recorded, int) and recorded >= attempt:
+                attempt = recorded + 1
+        while True:
+            branch, worktree = self._attempt_names(task_id, attempt)
+            valid_worktree = (worktree.exists()
+                              and gitops.is_worktree_root(worktree))
+            if (not gitops.branch_exists(self.root, branch)
+                    and not valid_worktree):
+                return attempt
+            attempt += 1
+
+    def _attempt_belongs_to_task(self, task_id: str, entry: dict) -> bool:
+        """Reject history/execution records that belong to another task."""
+        branch = entry.get("branch")
+        if branch and not (branch == "juicer/%s" % task_id
+                           or branch.startswith("juicer/%s-attempt-" % task_id)):
+            return False
+        worktree = entry.get("worktree")
+        if worktree:
+            name = Path(worktree).name
+            if name != task_id and not name.startswith(task_id + "-attempt-"):
+                return False
+        return True
+
+    def _previous_attempt(self, task: dict) -> Optional[dict]:
+        """Locate the previous attempt (history entry or current execution)."""
+        for entry in reversed(task.get("attempt_history") or []):
+            if not self._attempt_belongs_to_task(task["id"], entry):
+                continue
+            if entry.get("worktree") or entry.get("branch"):
+                return entry
+        exec_id = task.get("current_execution_id")
+        if not exec_id:
+            return None
+        try:
+            execution = self.load_execution(exec_id)
+        except JuicerError:
+            return None
+        if execution.get("task_id") != task["id"]:
+            return None
+        workspace = execution.get("workspace") or {}
+        result = execution.get("result") or {}
+        return {
+            "execution_id": exec_id,
+            "worktree": workspace.get("worktree"),
+            "branch": workspace.get("branch") or result.get("branch"),
+            "commit": result.get("commit"),
+            "base_commit": workspace.get("base_commit") or result.get("base_commit"),
+        }
+
+    def _preserve_attempt_if_any(self, task_id: str,
+                                 worktree: Optional[Path], branch: Optional[str],
+                                 base_commit: Optional[str]) -> Optional[dict]:
+        """Preserve *worktree*/*branch* only when the attempt actually exists."""
+        worktree_exists = bool(worktree and worktree.exists())
+        branch_exists = bool(branch and gitops.branch_exists(self.root, branch))
+        if not worktree_exists and not branch_exists:
+            return None
+        return self._preserve_prior_attempt(task_id, worktree, branch,
+                                            base_commit)
+
+    def _preserve_prior_attempt(self, task_id: str, worktree: Optional[Path],
+                                branch: Optional[str],
+                                base_commit: Optional[str]) -> dict:
         """Record a previous worktree/branch as evidence before removing it.
 
         AC6: the core must never delete a worktree or branch before the
@@ -626,6 +738,7 @@ class Juicer:
         and a durable ref to the branch tip, so nothing is orphaned for GC.
         """
         stamp = uuid.uuid4().hex[:12]
+        worktree_exists = bool(worktree and worktree.exists())
         record = {
             "schema_version": 1,
             "type": "preserved_attempt",
@@ -633,12 +746,12 @@ class Juicer:
             "recorded_at": utc_now(),
             "branch": branch,
             "base_commit": base_commit,
-            "worktree": str(worktree),
-            "worktree_exists": worktree.exists(),
+            "worktree": str(worktree) if worktree else None,
+            "worktree_exists": worktree_exists,
         }
-        if worktree.exists():
+        if worktree_exists:
             record["worktree_valid"] = gitops.is_worktree_root(worktree)
-        if worktree.exists() and record["worktree_valid"]:
+        if worktree_exists and record["worktree_valid"]:
             record["head_commit"] = gitops.head_commit(worktree)
             record["tree_hash"] = gitops.tree_hash(worktree)
             record["dirty"] = gitops.is_dirty(worktree)
@@ -650,14 +763,31 @@ class Juicer:
             patch_path = self.evidence_dir / task_id / ("preserved-%s.diff" % stamp)
             atomic_write_text(patch_path, gitops.diff_against(worktree, "HEAD"))
             record["diff_ref"] = str(patch_path)
-        if gitops.branch_exists(self.root, branch):
-            record["branch_tip"] = gitops.branch_tip(self.root, branch)
-            if record["branch_tip"]:
-                ref = "refs/juicer/attempts/%s/%s" % (task_id, stamp)
-                if gitops.update_ref(self.root, ref, record["branch_tip"]):
-                    record["preserved_ref"] = ref
+        # Anchor the tip so `git gc` cannot orphan the previous attempt. The
+        # branch may be unavailable (e.g. resume recorded only a worktree), in
+        # which case the worktree HEAD is still a valid anchor.
+        tip = None
+        if branch and gitops.branch_exists(self.root, branch):
+            tip = gitops.branch_tip(self.root, branch)
+        elif worktree_exists and record.get("worktree_valid"):
+            tip = record.get("head_commit")
+        if tip:
+            record["branch_tip"] = tip
+            ref = "refs/juicer/attempts/%s/%s" % (task_id, stamp)
+            if gitops.update_ref(self.root, ref, tip):
+                record["preserved_ref"] = ref
+            else:
+                # Fail closed: keep the SHA and surface the degraded state
+                # rather than silently relying on GC eligibility.
+                record["preserved_ref_error"] = ref
         path = self.evidence_dir / task_id / ("preserved-%s.json" % stamp)
         write_json(path, record)
+        if record.get("preserved_ref_error"):
+            self._event(
+                "attempt_preservation_degraded", task_id=task_id,
+                data={"artifact_ref": str(path), "branch_tip": tip,
+                      "ref": record["preserved_ref_error"]},
+                outcome="degraded")
         self._event("attempt_preserved", task_id=task_id,
                     data={"artifact_ref": str(path),
                           "branch_tip": record.get("branch_tip"),
@@ -728,11 +858,33 @@ class Juicer:
             raise JuicerError(
                 "only failed or blocked tasks can be retried (task is %s)"
                 % task["status"])
+        prev_exec_id = task.get("current_execution_id")
+        prev_workspace = {}
+        prev_attempt = None
+        if prev_exec_id:
+            try:
+                prev_execution = self.load_execution(prev_exec_id)
+            except JuicerError:
+                prev_execution = {}
+            if prev_execution.get("task_id") != task_id:
+                # A dangling/foreign pointer must not leak another task's
+                # branch, commit or attempt number into this history.
+                prev_execution = {}
+            prev_workspace = prev_execution.get("workspace") or {}
+            prev_attempt = prev_execution.get("attempt")
+        prev_result = task.get("result") or {}
         history = list(task.get("attempt_history") or [])
         history.append({
             "at": utc_now(),
             "from_status": task["status"],
-            "execution_id": task.get("current_execution_id"),
+            "execution_id": prev_exec_id,
+            "branch": prev_result.get("branch") or prev_workspace.get("branch"),
+            "worktree": prev_workspace.get("worktree"),
+            "commit": prev_result.get("commit"),
+            "base_commit": (prev_workspace.get("base_commit")
+                            or prev_result.get("base_commit")),
+            "merged_commit": prev_result.get("merged_commit"),
+            "attempt": prev_attempt,
             "blocked_reason": task.get("blocked_reason"),
             "action": "retry",
         })
@@ -744,7 +896,10 @@ class Juicer:
             current_execution_id=None,
         ))
         self._event("task_retried", task_id=task_id,
-                    data={"from": prior_status, "history_len": len(history)},
+                    data={"from": prior_status, "history_len": len(history),
+                          "previous_execution_id": prev_exec_id,
+                          "previous_branch": history[-1]["branch"],
+                          "previous_worktree": history[-1]["worktree"]},
                     outcome="ready")
         return doc
 
@@ -989,12 +1144,39 @@ class Juicer:
                 "integration target has uncommitted changes; commit/stash first "
                 "(never overwrite pre-existing changes)", gate_status="BLOCKED")
 
+        if gitops.is_merging(self.root):
+            # Never abort a merge we did not start: another process or a human
+            # may be resolving it.
+            raise GateBlockedError(
+                "a merge is already in progress in %s; resolve or abort it "
+                "explicitly before integrating %s"
+                % (self.root, task_id), gate_status="BLOCKED")
+
         ok, detail = gitops.merge_no_ff(self.root, commit)
         if not ok:
-            self._update_task(task_id, lambda t: t.update(status="blocked"))
+            partial = gitops.is_merging(self.root)
+            if partial:
+                reason = ("merge conflict on %s (%s): %s; abort failed, "
+                          "repository is still mid-merge — resolve or run "
+                          "`git merge --abort` explicitly"
+                          % (commit, branch, detail))
+                message = reason
+            else:
+                reason = ("merge conflict on %s (%s): %s; merge aborted"
+                          % (commit, branch, detail))
+                message = ("merge conflict for %s: %s; merge aborted, explicit "
+                           "intervention required" % (task_id, detail))
+
+            def mark_conflict(task, rsn=reason):
+                task["status"] = "blocked"
+                task["blocked_reason"] = rsn
+            self._update_task(task_id, mark_conflict)
             self._event("integration_conflict", task_id=task_id,
-                        data={"detail": detail}, outcome="conflict")
-            raise GateBlockedError("merge conflict for %s: %s" % (task_id, detail))
+                        data={"detail": detail, "commit": commit,
+                              "branch": branch, "partial_merge": partial,
+                              "reason": reason},
+                        outcome="conflict")
+            raise GateBlockedError(message)
 
         merged_commit = gitops.head_commit(self.root)
         post = self._run_task_checks(task, self.root, merged_commit,
@@ -1024,18 +1206,34 @@ class Juicer:
         }
         write_json(self.jdir / ("integration-%s.json" % task_id), integration)
         if post_gate["status"] != "PASS":
-            # Invariant: post-merge failure never leaves completed/done.
-            self._update_task(task_id, lambda t: t.update(
-                status="blocked",
-                blocked_reason="post-merge checks %s on %s"
-                               % (post_gate["status"], merged_commit)))
+            # Invariant: post-merge failure never leaves completed/done, and
+            # the integrated commit is recorded for correction/reversion.
+            def mark_post_failure(task, m=merged_commit, pg=post_gate):
+                task["status"] = "blocked"
+                task["blocked_reason"] = ("post-merge checks %s on %s"
+                                          % (pg["status"], m))
+                result = dict(task.get("result") or {})
+                result["merged_commit"] = m
+                result["post_merge_gate"] = pg
+                task["result"] = result
+            self._update_task(task_id, mark_post_failure)
             self._event("integration_post_failed", task_id=task_id,
                         data=integration, outcome="FAIL")
             raise GateBlockedError(
                 "post-merge checks %s on %s; task blocked — investigate before "
                 "retrying" % (post_gate["status"], merged_commit),
                 gate_status=post_gate["status"])
-        self._update_task(task_id, lambda t: t.update(status="done"))
+        # Record the integrated commit on success too, so checkpoints of done
+        # tasks carry the merge SHA (not only the pre-merge task commit).
+        def mark_integrated(task, m=merged_commit, pg=post_gate,
+                            ig=integration):
+            result = dict(task.get("result") or {})
+            result["merged_commit"] = m
+            result["post_merge_gate"] = pg
+            result["integrated_at"] = ig["integrated_at"]
+            task["status"] = "done"
+            task["result"] = result
+        self._update_task(task_id, mark_integrated)
         self._event("task_integrated", task_id=task_id, data=integration, outcome="PASS")
         return integration
 
@@ -1480,25 +1678,55 @@ class Juicer:
 
     # ---------- checkpoint / resume ----------
 
+    def _task_next_step(self, task: dict) -> str:
+        return {
+            "ready": "run",
+            "in_progress": "resume",
+            "blocked": "inspect block, then retry",
+            "failed": "retry",
+            "completed": "integrate",
+            "done": "none",
+        }.get(task.get("status"), "inspect")
+
     def checkpoint(self, note: str = "") -> dict:
         tasks = self.load_tasks()
         mission = self.mission()
         commit = gitops.head_commit(self.root)
+        task_state = {}
+        for t in tasks:
+            result = t.get("result") or {}
+            task_state[t["id"]] = {
+                "status": t["status"],
+                "revision": t["revision"],
+                "current_execution_id": t["current_execution_id"],
+                "next_step": self._task_next_step(t),
+                "blocked_reason": t.get("blocked_reason"),
+                "evidence": {
+                    "execution_id": result.get("execution_id"),
+                    "branch": result.get("branch"),
+                    "commit": result.get("commit"),
+                    "tree_hash": result.get("tree_hash"),
+                    "evidence_ref": result.get("evidence_ref"),
+                    "merged_commit": result.get("merged_commit"),
+                },
+            }
         cp = {
             "schema_version": 1,
             "created_at": utc_now(),
             "note": note,
             "mission": mission,
-            "tasks": {t["id"]: {"status": t["status"], "revision": t["revision"],
-                                "current_execution_id": t["current_execution_id"]}
-                      for t in tasks},
+            "tasks": task_state,
             "git_head": commit,
             "next_action": self._next_action(mission, tasks,
                                              [t["id"] for t in eligible_tasks(tasks)]),
         }
-        name = "cp-%s.json" % utc_now().replace(":", "").replace("-", "")
+        name = "cp-%s-%s.json" % (
+            utc_now().replace(":", "").replace("-", ""), uuid.uuid4().hex[:8])
         write_json(self.checkpoints_dir / name, cp)
-        self._event("checkpoint", data={"file": name, "next_action": cp["next_action"]})
+        self._event("checkpoint", data={"file": name,
+                                        "next_action": cp["next_action"],
+                                        "next_steps": {tid: s["next_step"]
+                                                       for tid, s in task_state.items()}})
         return cp
 
     def resume(self) -> dict:
@@ -1506,7 +1734,8 @@ class Juicer:
 
         For each ``in_progress`` task:
 
-        - Load the current execution and worktree when present.
+        - Load the current execution and its worktree (falling back to the
+          canonical path for legacy records).
         - If the execution already finished, align the task with it
           (succeeded -> completed, otherwise failed) when the transition is
           legal.
@@ -1514,13 +1743,18 @@ class Juicer:
           cancel the execution with a recorded reason, then mark the task
           ``blocked`` when a worktree still holds evidence, or ``failed``
           when there is nothing to preserve.
-        - Never leave ``in_progress`` unresolved and never start a duplicate
-          run for a task that is still reconciling.
+        - Record the reconciliation in ``attempt_history`` and in a resume
+          report artifact under ``.juicer/evidence/``.
+        - Attempt to resolve every ``in_progress`` task; a failed update is
+          recorded as ``resume_error`` and left for explicit intervention, and
+          no duplicate run is started while reconciling.
         """
         self.config()  # ensure initialized
         cfg = self.config()
         tasks = self.load_tasks()
-        recovered = []
+        recovered: List[str] = []
+        reconciled: List[dict] = []
+        wt_root = self.root / cfg.get("worktree_root", ".juicer/worktrees")
         for t in tasks:
             if t["status"] != "in_progress":
                 continue
@@ -1531,29 +1765,54 @@ class Juicer:
                     exec_doc = self.load_execution(exec_id)
                 except JuicerError:
                     exec_doc = None
-            wt_root = self.root / cfg.get("worktree_root", ".juicer/worktrees")
-            worktree = wt_root / t["id"]
+            if exec_doc is not None and exec_doc.get("task_id") != t["id"]:
+                # Never align a task with another task's execution/result.
+                self._event("resume_execution_mismatch", task_id=t["id"],
+                            execution_id=exec_id,
+                            data={"execution_task_id": exec_doc.get("task_id")},
+                            outcome="ignored")
+                exec_doc = None
+                exec_id = None
+            workspace = (exec_doc or {}).get("workspace") or {}
+            exec_attempt = (exec_doc or {}).get("attempt")
+            worktree = (Path(workspace["worktree"])
+                        if workspace.get("worktree") else wt_root / t["id"])
             worktree_exists = worktree.exists()
 
             if exec_doc is not None and exec_doc.get("status") in (
                     "succeeded", "failed", "cancelled"):
                 # Execution already terminal: align the task, do not invent a
                 # second failure.
-                if exec_doc["status"] == "succeeded":
-                    target = "completed"
-                else:
-                    target = "failed"
-                # M-1: carry the execution result (commit/branch) into the
-                # task; without it integrate cannot link gates to the commit.
+                target = ("completed" if exec_doc["status"] == "succeeded"
+                          else "failed")
                 carried = exec_doc.get("result") or {}
+                reason = ("execution %s already %s; task aligned"
+                          % (exec_id, exec_doc["status"]))
 
-                def align(task, tgt=target, res=carried):
+                def align(task, tgt=target, res=carried, rsn=reason,
+                          ex=exec_id, br=workspace.get("branch"),
+                          bc=workspace.get("base_commit"), at=exec_attempt):
                     task["status"] = tgt
                     if res:
                         task["result"] = res
+                    history = list(task.get("attempt_history") or [])
+                    history.append({
+                        "at": utc_now(), "action": "resume",
+                        "from_status": "in_progress", "to_status": tgt,
+                        "execution_id": ex, "reason": rsn,
+                        "branch": br, "base_commit": bc, "attempt": at,
+                    })
+                    task["attempt_history"] = history
                 try:
                     self._update_task(t["id"], align)
                     recovered.append(t["id"])
+                    reconciled.append({
+                        "task_id": t["id"], "action": "aligned",
+                        "from_status": "in_progress", "to_status": target,
+                        "execution_id": exec_id,
+                        "execution_status": exec_doc["status"],
+                        "reason": reason, "worktree_exists": worktree_exists,
+                    })
                     self._event(
                         "resume_reconciled", task_id=t["id"], execution_id=exec_id,
                         data={"from": "in_progress", "to": target,
@@ -1566,7 +1825,8 @@ class Juicer:
                 continue
 
             # Interrupted mid-run (or missing/stale execution record).
-            if exec_doc is not None and exec_doc.get("status") in (
+            execution_status = (exec_doc or {}).get("status")
+            if exec_doc is not None and execution_status in (
                     "claimed", "running"):
                 reason = "interrupted: reconciled by resume"
                 self._update_execution(
@@ -1587,25 +1847,63 @@ class Juicer:
             else:
                 target = "failed"
                 reason = "interrupted run; no worktree to preserve"
-            self._update_task(
-                t["id"],
-                lambda task, tgt=target, rsn=reason: task.update(
-                    status=tgt, blocked_reason=rsn if tgt == "blocked" else None,
-                    result={
-                        "resumed": True,
-                        "execution_id": exec_id,
-                        "detail": rsn,
-                        "worktree": str(worktree) if worktree_exists else None,
-                    },
-                ))
+
+            def recover(task, tgt=target, rsn=reason, wt=worktree,
+                        ex=exec_id, wexists=worktree_exists, at=exec_attempt):
+                prior = dict(task.get("result") or {})
+                prior.update({
+                    "resumed": True,
+                    "execution_id": ex,
+                    "detail": rsn,
+                    "worktree": str(wt) if wexists else None,
+                })
+                task["status"] = tgt
+                task["blocked_reason"] = rsn if tgt == "blocked" else None
+                task["current_execution_id"] = ex
+                task["result"] = prior
+                history = list(task.get("attempt_history") or [])
+                history.append({
+                    "at": utc_now(), "action": "resume",
+                    "from_status": "in_progress", "to_status": tgt,
+                    "execution_id": ex, "reason": rsn,
+                    "worktree": str(wt) if wexists else None,
+                    "branch": workspace.get("branch"),
+                    "base_commit": workspace.get("base_commit"),
+                    "attempt": at,
+                })
+                task["attempt_history"] = history
+            self._update_task(t["id"], recover)
             recovered.append(t["id"])
+            reconciled.append({
+                "task_id": t["id"], "action": "recovered",
+                "from_status": "in_progress", "to_status": target,
+                "execution_id": exec_id,
+                "execution_status": execution_status,
+                "reason": reason, "worktree": str(worktree) if worktree_exists else None,
+            })
             self._event(
                 "resume_recovered", task_id=t["id"], execution_id=exec_id,
                 data={"from": "in_progress", "to": target, "detail": reason,
                       "worktree_exists": worktree_exists},
                 outcome="recovered")
-        status = self.status()
-        return {"recovered": recovered, "status": status}
+
+        artifact_ref = None
+        if reconciled:
+            path = self.evidence_dir / ("resume-%s.json" % uuid.uuid4().hex[:12])
+            write_json(path, {
+                "schema_version": 1,
+                "type": "resume_report",
+                "created_at": utc_now(),
+                "reconciled": reconciled,
+            })
+            artifact_ref = str(path)
+            self._event("resume_report", data={"artifact_ref": artifact_ref,
+                                               "recovered": list(recovered)},
+                        outcome="reconciled")
+        out = {"recovered": recovered, "status": self.status()}
+        if artifact_ref:
+            out["artifact_ref"] = artifact_ref
+        return out
 
     # ---------- events ----------
 

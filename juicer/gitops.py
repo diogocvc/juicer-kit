@@ -209,6 +209,13 @@ def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
     return proc.returncode == 0
 
 
+def is_merging(repo: Path) -> bool:
+    """True when a merge is in progress (MERGE_HEAD exists)."""
+    proc = git(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], repo,
+               check=False)
+    return proc.returncode == 0
+
+
 def merge_no_ff(repo: Path, ref: str, message: Optional[str] = None) -> Tuple[bool, str]:
     """Explicit merge of *ref* (branch or SHA); on conflict abort and report."""
     msg = message or "juicer: merge %s" % ref
