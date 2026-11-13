@@ -77,19 +77,19 @@
 
 **Priority**: P0-Critical
 
-**Status**: Pending
+**Status**: In Progress
 
 **Dependencies**: TASK-003, TASK-004, TASK-005, TASK-006, TASK-007, TASK-008, TASK-009, TASK-010
 
 **Acceptance Criteria**:
-- [ ] E2E cobre missão, importação, execução, checks, revisão, segurança, aprovação, merge e pós-merge.
-- [ ] Gate ausente, revisão ausente, segurança exigida e não executada e aprovação ausente bloqueiam.
-- [ ] Alteração fora de escopo, commit do agente e path protegido bloqueiam.
-- [ ] Falha pós-merge não deixa tarefa `completed` ou `done`.
-- [ ] Interrupção, retry e `resume` são validados sem perda de evidência.
-- [ ] Suíte completa passa e o smoke real **V2** é registrado (versão e capabilities medidas).
-- [ ] Documentação final não declara compatibilidade V1 nem capacidade V2 não medida.
+- [x] E2E cobre missão, importação, execução, checks, revisão, segurança, aprovação, merge e pós-merge.
+- [x] Gate ausente, revisão ausente, segurança exigida e não executada e aprovação ausente bloqueiam.
+- [x] Alteração fora de escopo, commit do agente e path protegido bloqueiam.
+- [x] Falha pós-merge não deixa tarefa `completed` ou `done`.
+- [x] Interrupção, retry e `resume` são validados sem perda de evidência.
+- [x] Suíte completa passa e o smoke real **V2** é registrado (versão e capabilities medidas).
+- [x] Documentação final não declara compatibilidade V1 nem capacidade V2 não medida.
 
 **Estimated Effort**: 2,5–3,5 dev-days
 
-**Notes**: Ver Apêndice A do plano. Gate de aceitação do MVP V2, não de release/deploy. Bloqueado na prática até a TASK-003 provisionar e validar o binário V2.
+**Notes**: Ver Apêndice A do plano. Gate de aceitação do MVP V2, não de release/deploy. Evidência: `tests/test_e2e_v2.py` (8 testes determinísticos com adaptador V2 real e binário scriptado), smoke opt-in de capabilities em `opencode v2.2.7`, e execução real de `run`+checks+merge+pós-merge com modelo free. Review/security ao vivo ficaram limitados por quota (HTTP 402/429); aprovação é local e coberta pelo E2E. O caminho completo é coberto pelo E2E determinístico. A validação revelou e corrigiu a âncora de workspace por `PWD`.

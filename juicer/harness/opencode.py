@@ -5,9 +5,10 @@ model does not depend on the OpenCode version; only this integration layer
 does. The adapter implements the minimal ``Harness`` contract in
 ``juicer.harness.contract``.
 
-V2 notes (measured on 2.1.4):
+V2 notes (measured on 2.1.4 and 2.2.7):
 
-* ``run`` has no ``--dir``; the process CWD selects the project/worktree.
+* ``run`` has no ``--dir``; V2 resolves the project from ``PWD``. The adapter
+  pins both the subprocess cwd and ``PWD`` to the requested workspace.
 * ``--standalone`` runs a private server and is the default here so concurrent
   worktree executions do not share session state.
 * Events are NDJSON with ``sessionID`` and a top-level ``part`` (text parts
@@ -225,7 +226,7 @@ def build_command(binary: str, message: str, agent: Optional[str] = None,
         cmd += ["--standalone"]
     if run_dir:
         # Historical V1 only: V2 has no --dir; callers pin the workspace via
-        # process CWD.
+        # both process CWD and PWD (OpenCode resolves the project from PWD).
         # Passing the flag when the binary does not support it would fail, so
         # only include it when the caller explicitly requests a dir pin and
         # the binary is expected to accept it.
@@ -285,22 +286,31 @@ def run(request: ExecutionRequest, binary: Optional[str] = None) -> ExecutionRes
     Affirmative agent text is never proof of success. Callers must use the
     exit code, deterministic checks and git evidence.
 
-    The subprocess runs with ``cwd=request.cwd`` so V2 associates the correct
-    project/worktree without ``--dir``.
+    The subprocess runs with ``cwd`` and ``PWD`` resolved from ``request.cwd`` so V2
+    associates the correct project/worktree. OpenCode's project resolution
+    reads PWD; relying on the process cwd alone can run the agent in the
+    caller's repository.
     """
     binary = binary or find_binary()
+    workdir = Path(request.cwd).resolve()
+    if not workdir.is_dir():
+        return ExecutionResult(
+            ok=False, status="BLOCKED", exit_code=None, session_id=None,
+            output="", detail="workspace is not a directory: %s" % workdir,
+            command=None, agent=request.agent, cwd=str(workdir),
+        )
     if binary is None:
         return ExecutionResult(
             ok=False, status="BLOCKED", exit_code=None, session_id=None,
             output="", detail="opencode binary not found", command=None,
-            agent=request.agent, cwd=str(request.cwd),
+            agent=request.agent, cwd=str(workdir),
         )
     info = discover(explicit=binary)
     if info["status"] == "unsupported":
         return ExecutionResult(
             ok=False, status="BLOCKED", exit_code=None, session_id=None,
             output="", detail="opencode harness unavailable: %s" % info["detail"],
-            command=None, agent=request.agent, cwd=str(request.cwd),
+            command=None, agent=request.agent, cwd=str(workdir),
         )
     caps = info["capabilities"]
     is_v2 = bool(caps.get("v2"))
@@ -309,7 +319,7 @@ def run(request: ExecutionRequest, binary: Optional[str] = None) -> ExecutionRes
         required.append("agent_flag")
     if request.session_id:
         required.append("session_flag")
-    # Historical V1 needs --dir to pin worktrees; V2 pins via process CWD.
+    # Historical V1 needs --dir to pin worktrees; V2 pins via cwd + PWD.
     if not is_v2:
         required.append("dir_flag")
     missing = [name for name in required if not caps.get(name)]
@@ -317,21 +327,26 @@ def run(request: ExecutionRequest, binary: Optional[str] = None) -> ExecutionRes
         return ExecutionResult(
             ok=False, status="BLOCKED", exit_code=None, session_id=None,
             output="", detail="opencode missing capabilities: %s" % ", ".join(missing),
-            command=None, agent=request.agent, cwd=str(request.cwd),
+            command=None, agent=request.agent, cwd=str(workdir),
         )
     use_standalone = bool(caps.get("standalone_flag"))
     use_dir = (not is_v2) and bool(caps.get("dir_flag"))
     cmd = build_command(
         binary, request.prompt, agent=request.agent,
-        run_dir=str(request.cwd) if use_dir else None,
+        run_dir=str(workdir) if use_dir else None,
         session_id=request.session_id,
         standalone=use_standalone,
     )
     if request.extra_args:
         cmd = cmd[:-2] + list(request.extra_args) + cmd[-2:]
     try:
-        proc = subprocess.run(cmd, cwd=str(request.cwd), capture_output=True,
-                              text=True, timeout=request.timeout)
+        # OpenCode resolves the project from PWD, not only from the process
+        # cwd. Python's subprocess cwd does not update PWD, so a worktree run
+        # could otherwise execute in the caller's repository. Pin both.
+        env = dict(os.environ)
+        env["PWD"] = str(workdir)
+        proc = subprocess.run(cmd, cwd=str(workdir), capture_output=True,
+                              text=True, timeout=request.timeout, env=env)
     except subprocess.TimeoutExpired as exc:
         out = _text(exc.stdout)
         err = _text(exc.stderr)
@@ -341,13 +356,13 @@ def run(request: ExecutionRequest, binary: Optional[str] = None) -> ExecutionRes
             ok=False, status="FAIL", exit_code=None,
             session_id=parsed["session_id"], output=combined,
             detail="timeout after %ss" % request.timeout,
-            command=cmd, agent=request.agent, cwd=str(request.cwd),
+            command=cmd, agent=request.agent, cwd=str(workdir),
         )
     except (OSError, ValueError, TypeError) as exc:
         return ExecutionResult(
             ok=False, status="BLOCKED", exit_code=None, session_id=None,
             output="", detail=str(exc), command=cmd,
-            agent=request.agent, cwd=str(request.cwd),
+            agent=request.agent, cwd=str(workdir),
         )
     combined = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
     parsed = parse_run_output(proc.stdout or "")
@@ -361,7 +376,7 @@ def run(request: ExecutionRequest, binary: Optional[str] = None) -> ExecutionRes
         detail="opencode run exited %s" % proc.returncode,
         command=cmd,
         agent=request.agent,
-        cwd=str(request.cwd),
+        cwd=str(workdir),
     )
 
 

@@ -66,7 +66,7 @@ def test_execute_uses_fake_binary_and_captures_exit_code(tmp_path):
     fake = tmp_path / "opencode"
     fake.write_text(
         "#!/bin/sh\n"
-        "if [ \"$1\" = \"--version\" ]; then echo opencode v2.1.4; exit 0; fi\n"
+        "if [ \"$1\" = \"--version\" ]; then echo opencode v2.2.7; exit 0; fi\n"
         "if [ \"$1\" = \"run\" ] && [ \"$2\" = \"--help\" ]; then\n"
         "  echo '--format json --agent coder --session ses_x --standalone'\n"
         "  exit 0\n"
@@ -95,6 +95,43 @@ def test_execute_uses_fake_binary_and_captures_exit_code(tmp_path):
         del os.environ["FAKE_EXIT"]
     assert result["ok"] is False
     assert result["exit_code"] == 3
+
+
+def test_execute_pins_pwd_to_workspace(tmp_path, monkeypatch):
+    """OpenCode resolves the project from PWD; the adapter must set both.
+
+    A subprocess cwd alone leaves the inherited PWD pointing at the caller's
+    repository, so an agent could edit the wrong tree. The fake is Python so
+    it reads the environment directly; /bin/sh may recompute PWD itself.
+    The relative cwd also checks that the adapter resolves it before use.
+    """
+    fake = tmp_path / "opencode"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:1] == ['--version']:\n"
+        "    print('opencode v2.2.7'); sys.exit(0)\n"
+        "if args[:2] == ['run', '--help']:\n"
+        "    print('--format json --agent coder --standalone'); sys.exit(0)\n"
+        "if args[:2] == ['serve', '--help']:\n"
+        "    print('serve'); sys.exit(0)\n"
+        "with open('pwd.txt', 'w', encoding='utf-8') as fh:\n"
+        "    fh.write(os.environ['PWD'])\n"
+        "print('{\"type\":\"text\",\"sessionID\":\"ses_pwd\","
+        "\"part\":{\"type\":\"text\",\"text\":\"ok\"}}')\n",
+        encoding="utf-8",
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.chdir(tmp_path)
+    work = Path("work")
+    work.mkdir()
+
+    result = opencode.execute("please implement", work, agent="coder",
+                              binary=str(fake))
+    assert result["ok"] is True
+    assert result["cwd"] == str(work.resolve())
+    assert (work / "pwd.txt").read_text(encoding="utf-8") == str(work.resolve())
 
 
 def test_execute_reports_blocked_without_binary(tmp_path, monkeypatch):

@@ -4,8 +4,10 @@ Run with:
 
     JUICER_OPENCODE_SMOKE=1 uv tool run pytest -q tests/test_opencode_smoke.py
 
-This test makes a real model call. It is skipped by default so the normal
-suite stays deterministic and offline.
+``test_real_v2_capabilities_are_measured`` only probes the installed binary and
+never calls a model. ``test_real_opencode_v2_smoke`` makes a real model call and
+is skipped unless ``JUICER_OPENCODE_SMOKE=1``; the normal suite stays
+deterministic and offline.
 """
 
 from __future__ import annotations
@@ -22,6 +24,21 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("JUICER_OPENCODE_SMOKE") != "1",
     reason="set JUICER_OPENCODE_SMOKE=1 to run the real OpenCode smoke",
 )
+
+
+def test_real_v2_capabilities_are_measured():
+    """No model call: prove the installed binary and the measured V2 surface."""
+    info = opencode.discover()
+    assert info["status"] == "supported", info
+    assert info["binary"]
+    assert info["version"]
+    caps = info["capabilities"]
+    assert caps["v2"] is True, info
+    assert caps["run_json"] is True
+    assert caps["agent_flag"] is True
+    assert caps["standalone_flag"] is True
+    assert caps["dir_flag"] is False
+    assert caps["events"] == "jsonl-stream"
 
 
 def test_real_opencode_v2_smoke(tmp_path):

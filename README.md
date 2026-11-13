@@ -4,7 +4,7 @@ A specialized agent kit for OpenCode, inspired by Mission Kit and optimized for 
 
 **Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and checkpoint/resume. The 3.x Markdown kit (agents, commands, skills) remains usable standalone and is evolved in 4.0 to follow the core's gate order.
 
-**Target harness**: OpenCode 2.x/V2 (measured in this environment as `opencode v2.1.4`). V1 binaries may be detected for diagnostics but are `degraded`; compatibility with V1 is not promised. See [STATUS.md](STATUS.md) for measured capabilities versus planned gaps.
+**Target harness**: OpenCode 2.x/V2 (measured in this environment as `opencode v2.2.7`). V1 binaries may be detected for diagnostics but are `degraded`; compatibility with V1 is not promised. See [STATUS.md](STATUS.md) for measured capabilities versus planned gaps.
 
 ## 🎯 Objective
 
@@ -39,7 +39,7 @@ juicer-kit/
 │   └── harness/
 │       ├── contract.py       # discover/run request-result contract
 │       └── opencode.py       # OpenCode V2 adapter (run --format json --standalone)
-├── tests/                    # 337 default pytest tests + 1 opt-in smoke
+├── tests/                    # 346 default pytest tests + 2 opt-in V2 smoke checks
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
@@ -140,7 +140,7 @@ ln -s ~/path/to/juicer-kit/backlog ./backlog
 
 The core turns a mission into isolated, auditable executions through OpenCode:
 
-1. Each task runs via `opencode run --format json --agent <agent> --standalone` with the worktree as the process CWD.
+1. Each task runs via `opencode run --format json --agent <agent> --standalone` with the worktree as both the process CWD and `PWD` (V2 resolves the project from `PWD`).
 2. Work runs in a **dedicated git worktree/branch** (`juicer/<TASK-ID>`; retries use `juicer/<TASK-ID>-attempt-<n>`) — never on your checkout.
 3. The agent's prose is never evidence; only the commit, diff, captured output and **deterministic checks** are.
 4. **Review/security are evidence gates when the task policy requires them**: `juicer review-run` / `security-run` trigger the existing `@reviewer`/`@security` agents, require one structured JSON block in their output, and the core records the artifact linked to commit/tree. The task must be `completed` and its worktree present, free of tracked changes and at the task commit; otherwise the command refuses with `BLOCKED` instead of reviewing the wrong tree. Missing, stale or malformed evidence blocks the merge when the corresponding gate is declared. Security is not added implicitly, including for high-risk tasks: declare `security` in `required_gates`; high risk always requires recorded human approval.

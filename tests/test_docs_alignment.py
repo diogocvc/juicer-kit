@@ -227,7 +227,7 @@ def test_readme_points_to_plan_and_distinguishes_measured_from_planned():
     normalized = flat(text)
     assert "docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md" in text
     assert "OpenCode 2.x/V2" in text
-    assert "v2.1.4" in text
+    assert "v2.2.7" in text
     assert "degraded" in normalized
     assert "compatibility with v1 is not promised" in normalized
     assert "measured capabilities versus planned gaps" in normalized
@@ -278,7 +278,7 @@ def test_status_separates_measured_capability_from_planned_gap():
     normalized = flat(text)
     assert "docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md" in text
     assert "OpenCode 2.x/V2" in text
-    assert "opencode v2.1.4" in text
+    assert "opencode v2.2.7" in text
     assert "capacidade **medida**" in normalized
     assert "lacuna planejada" in normalized
     assert "compatibilidade v1 como alvo" in normalized

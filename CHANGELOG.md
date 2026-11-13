@@ -23,8 +23,8 @@ estrutural v2.0 (escopo MVP) e no mapa de atividades v2.
     conflito aborta sem sobrescrever, evidência de diff.
   - `harness/opencode.py` — adapter OpenCode: detecção de binário
     (`OPENCODE_BIN` → PATH → registry Zed), `run --format json --agent`,
-    `--dir` fixo para worktrees, captura de session id/exit code; texto do
-    agente nunca é tratado como prova.
+    workspace isolado por `cwd` + `PWD` (V2 não tem `--dir`), captura de
+    session id/exit code; texto do agente nunca é tratado como prova.
   - `orchestrator.py` — fluxo vertical: missão (com lacunas → waiting_human),
     inspeção, decomposição, execução isolada, checks, integração com gate +
     pós-merge, checkpoint/resume.

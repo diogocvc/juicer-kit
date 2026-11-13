@@ -55,21 +55,27 @@ alvo do MVP).
 | `events` | Formato de saída; `jsonl-stream` (eventos V2 com `part`). |
 | `worktree` | Isolamento; `git-cli` no core. |
 
-### Capacidades medidas (OpenCode 2.1.4, 2026-10-26)
+### Capacidades medidas (OpenCode 2.2.7, 2026-11-12)
 
 | Capacidade | Medida |
 | --- | --- |
 | `run` / `run_json` / `agent_flag` / `session_flag` / `continue_flag` / `auto_flag` | presentes |
 | `standalone_flag` | presente |
-| `dir_flag` | **ausente** — workspace fixado pelo CWD do processo |
+| `dir_flag` | **ausente** — workspace fixado pelo `cwd` e pelo `PWD` do processo |
 | Eventos | NDJSON com `sessionID` e `part.type=text` |
+| Resolução de projeto | **`PWD`**; em 2.2.7 o `cwd` do subprocesso sozinho não reposiciona o agente. O adaptador fixa ambos |
+| Chamada de modelo | **parcialmente medida**: `run` + checks + `integrate` + pós-merge passaram com modelo free em 2026-11-12; `review-run`/`security-run` ao vivo não foram reexecutados após o fix de `PWD` e ficaram bloqueados por quota/limite do provider (HTTP 402/429) |
+
+Medição anterior, mantida como histórico: OpenCode 2.1.4 (2026-10-26) com a
+mesma superfície de flags e eventos acima.
 
 ## Execução
 
 `ExecutionRequest` contém:
 
 - `prompt`: texto não vazio.
-- `cwd`: diretório de trabalho (worktree); no V2 é a única âncora de projeto.
+- `cwd`: diretório de trabalho (worktree); no V2 é a âncora de projeto, junto
+  com `PWD` (ver abaixo).
 - `agent`: agente opcional.
 - `timeout`: segundos positivos.
 - `session_id`: sessão opcional, quando suportada.
@@ -78,7 +84,21 @@ alvo do MVP).
 O adaptador V2 monta o comando com `run`, `--format json`, `--agent`,
 `--standalone` (quando a flag existe) e, quando solicitado, `--session`. Não
 passa `--dir` na V2. `--auto` não é adicionado por padrão. O subprocesso roda
-com `cwd=request.cwd`.
+com `cwd=request.cwd` **e** `PWD=request.cwd`: OpenCode resolve o projeto por
+`PWD`, e um `cwd` de subprocesso sem atualizar `PWD` pode executar o agente no
+repositório chamador em vez do worktree.
+
+A descoberta de configuração/agentes da V2 sobe a partir do `PWD`. Os worktrees
+do core ficam em `.juicer/worktrees/<task>`, dentro do projeto, então
+`.opencode/` no topo continua visível. Medição: `--agent reviewer` resolveu em
+um subdiretório do projeto e falhou com `Agent not found` em um diretório fora
+dele. Se os worktrees forem movidos para fora do projeto, o `.opencode/`
+precisa existir no worktree ou via configuração global.
+
+`.opencode/`, `opencode.json(c)` e `AGENTS.md` não são paths protegidos por
+padrão. Uma tarefa com escopo que os permita pode alterar o agente que produz
+evidência de review/security; o core detecta a mudança no diff, mas não valida
+a definição do agente. Mantenha esses paths fora do escopo ou protegidos.
 
 ## Resultado normalizado
 

@@ -398,11 +398,11 @@ teste associado.
 
 | Capacidade | Situação | Observação |
 | --- | --- | --- |
-| Instalação/binary V2 | **medida** | `opencode v2.1.4` em `~/.opencode/bin/opencode` via `upgrade --major`. |
+| Instalação/binary V2 | **medida** | `opencode v2.2.7` em `~/.opencode/bin/opencode` (medição original: v2.1.4 via `upgrade --major`). |
 | `--version` | medida | Probe distingue 2.x (`v2: true`). |
 | `run --format json` | medida | NDJSON com `sessionID` e `part`. |
 | `--agent` | medida | Smoke e testes. |
-| `--dir` | **ausente na V2** | `run --help` 2.1.4 não tem a flag; workspace fixado pelo CWD do subprocesso. |
+| `--dir` | **ausente na V2** | `run --help` em 2.1.4 e 2.2.7 não tem a flag; workspace fixado por `cwd` + `PWD` (V2 resolve o projeto por `PWD`). |
 | `--session` / `--continue` | flags medidas | Retomada real ainda não exercitada (`session_resume=false`). |
 | `--standalone` | medida | Servidor privado por execução; padrão do adaptador. |
 | `serve` | medida | `serve --help` responde. |
