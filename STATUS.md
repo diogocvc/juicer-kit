@@ -38,7 +38,7 @@ gates, evidências e aprovação aplicados pelo core.
 | Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
 | Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
 | Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 346 testes padrão + checks opt-in de V2 |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 345 testes padrão + checks opt-in de V2 |
 | Importação unidirecional do backlog | **supported (medida)** | `juicer/backlog.py` + `Juicer.import_backlog` valida schema/IDs/dependências/prioridades/critérios/escopo; importa uma vez em missão vazia, recusa missão com tarefas e backlog alterado, repete como `unchanged`; journal `pending`/`complete` com rollback ou retomada; `tests/test_backlog_import.py` |
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
 | Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
@@ -124,7 +124,7 @@ gates, evidências e aprovação aplicados pelo core.
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
 uv tool run pytest -q tests/ --ignore=tests/test_opencode_smoke.py
-                                                 # 346 passed (2026-11-12)
+                                                 # 345 passed (2026-11-12)
 JUICER_OPENCODE_SMOKE=1 uv tool run pytest -q tests/test_opencode_smoke.py -k capabilities
                                                  # 1 passed (V2 real, sem modelo)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário

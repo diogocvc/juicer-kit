@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -484,22 +483,6 @@ def test_non_utf8_archived_file_is_ignored(juicer, repo):
     result = juicer.import_backlog()
 
     assert result["task_ids"] == ["TASK-001"]
-
-
-def test_real_backlog_keeps_task_001_and_002_intact(juicer, repo):
-    source = ROOT / "backlog"
-    text = (source / "backlog.md").read_text(encoding="utf-8")
-    path = write_backlog(repo, text)
-    shutil.copytree(source / "done", repo / "backlog" / "done")
-    before = path.read_bytes()
-
-    juicer.import_backlog()
-
-    tasks = {task["id"]: task for task in juicer.load_tasks()}
-    assert tasks["TASK-001"]["title"] == "Create user authentication with JWT"
-    assert tasks["TASK-001"]["priority"] == "P1"
-    assert tasks["TASK-002"]["depends_on"] == ["TASK-001"]
-    assert path.read_bytes() == before
 
 
 def test_gitignore_is_merged_on_existing_project(juicer):

@@ -39,7 +39,7 @@ juicer-kit/
 │   └── harness/
 │       ├── contract.py       # discover/run request-result contract
 │       └── opencode.py       # OpenCode V2 adapter (run --format json --standalone)
-├── tests/                    # 346 default pytest tests + 2 opt-in V2 smoke checks
+├── tests/                    # 345 default pytest tests + 2 opt-in V2 smoke checks
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
