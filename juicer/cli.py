@@ -69,6 +69,12 @@ def cmd_decompose(args):
     return 0
 
 
+def cmd_import_backlog(args):
+    j = _juicer(args)
+    _print(j.import_backlog(args.file))
+    return 0
+
+
 def cmd_status(args):
     j = _juicer(args)
     st = j.status()
@@ -237,6 +243,13 @@ def build_parser():
     sp = sub.add_parser("decompose", help="add tasks from a JSON file")
     sp.add_argument("file")
     sp.set_defaults(fn=cmd_decompose)
+
+    sp = sub.add_parser(
+        "import-backlog",
+        help="import pending tasks from backlog Markdown (one-way, once per mission)")
+    sp.add_argument("--file", default=None,
+                    help="backlog Markdown path (default: backlog/backlog.md)")
+    sp.set_defaults(fn=cmd_import_backlog)
 
     sp = sub.add_parser("status", help="show mission, tasks, eligibility, next action")
     sp.add_argument("--json", action="store_true")

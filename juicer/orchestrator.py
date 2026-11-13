@@ -8,6 +8,7 @@ uses the installed OpenCode V2 binary through the harness contract.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from . import approval as approval_mod
+from . import backlog as backlog_mod
 from . import checks as checks_mod
 from . import evidence as evidence_mod
 from . import gitops
@@ -124,6 +126,7 @@ class Juicer:
         self.evidence_dir = self.jdir / "evidence"
         self.events_path = self.jdir / "events.jsonl"
         self.checkpoints_dir = self.jdir / "checkpoints"
+        self.imports_dir = self.jdir / "imports"
         self.mission_path = self.jdir / "mission.json"
         self._executor = executor
 
@@ -136,17 +139,26 @@ class Juicer:
         ensure_dir(self.checks_dir)
         ensure_dir(self.evidence_dir)
         ensure_dir(self.checkpoints_dir)
+        ensure_dir(self.imports_dir)
         if self.config_path.exists() and not force:
             cfg = read_json(self.config_path)
         else:
             cfg = dict(DEFAULT_CONFIG)
             write_json(self.config_path, cfg)
         gitignore = self.jdir / ".gitignore"
+        ignore_entries = [
+            "worktrees/", "evidence/", "approvals/", "executions/", "checks/",
+            "checkpoints/", "imports/", "events.jsonl", "*.lock",
+        ]
         if not gitignore.exists():
-            atomic_write_text(
-                gitignore,
-                "worktrees/\nevidence/\napprovals/\nexecutions/\nchecks/\ncheckpoints/\nevents.jsonl\n*.lock\n",
-            )
+            atomic_write_text(gitignore, "\n".join(ignore_entries) + "\n")
+        else:
+            current = gitignore.read_text(encoding="utf-8").splitlines()
+            missing = [e for e in ignore_entries if e not in current]
+            if missing:
+                prefix = "" if not current else "\n"
+                atomic_write_text(
+                    gitignore, "\n".join(current) + prefix + "\n".join(missing) + "\n")
         self._event("init", data={"kit": "4.0.0", "root": str(self.root)})
         return cfg
 
@@ -265,7 +277,10 @@ class Juicer:
                 agent=spec.get("agent", self.config().get("agent_default", "coder")),
                 checks=spec.get("checks", []),
                 allow_agent_commits=spec.get("allow_agent_commits", False),
+                priority=spec.get("priority"),
             )
+            if spec.get("origin"):
+                task["origin"] = spec["origin"]
             candidates[tid] = task
             made.append(task)
         cycle = detect_cycle(list(candidates.values()))
@@ -279,6 +294,293 @@ class Juicer:
             self._event("task_added", task_id=task["id"],
                         data={"depends_on": task["depends_on"]})
         return made
+
+    def _mission_marker(self, mission: dict) -> dict:
+        return {
+            "instance_id": mission.get("instance_id"),
+            "created_at": mission.get("created_at"),
+            "title": mission.get("title"),
+            "objective": mission.get("objective"),
+        }
+
+    def _import_record(self, path: Path) -> Optional[dict]:
+        if not path.exists():
+            return None
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            raise JuicerError(
+                "import record %s is corrupt (%s); explicit reconciliation "
+                "is required" % (path, exc))
+        if not isinstance(doc, dict):
+            raise JuicerError(
+                "import record %s is malformed; explicit reconciliation is "
+                "required" % path)
+        return doc
+
+    def _backlog_done_ids(self, source_path: Path) -> set:
+        done_dir = source_path.parent / "done"
+        if not done_dir.is_dir():
+            return set()
+        root = self.root.resolve()
+        paths = []
+        for candidate in sorted(done_dir.glob("*.md")):
+            resolved = candidate.resolve()
+            # Symlinked archives must not escape the project root.
+            if resolved == root or root in resolved.parents:
+                paths.append(resolved)
+        return backlog_mod.archived_task_ids(paths)
+
+    def _parse_backlog_source(self, source_path: Path, text: str):
+        return backlog_mod.parse_backlog(
+            text, completed_ids=self._backlog_done_ids(source_path))
+
+    def _build_import_tasks(self, specs, mission, rel_source, digest,
+                            imported_at):
+        made = []
+        for spec in specs:
+            task = new_task(
+                spec["id"], mission["id"], spec["title"], spec["description"],
+                depends_on=spec["depends_on"],
+                acceptance_criteria=spec["acceptance_criteria"],
+                scope=spec["scope"],
+                priority=spec["priority"],
+                agent=self.config().get("agent_default", "coder"),
+            )
+            task["origin"] = {
+                "source": rel_source,
+                "sha256": digest,
+                "imported_at": imported_at,
+                "line": spec["line"],
+                "source_status": spec["origin_status"],
+                "priority_label": spec["priority_label"],
+                "completed_dependencies": spec.get("completed_dependencies", []),
+                "estimated_effort": spec.get("effort") or None,
+            }
+            validate_task(task)
+            made.append(task)
+        cycle = detect_cycle(made)
+        if cycle:
+            raise ValidationError(["dependency cycle: %s" % " -> ".join(cycle)])
+        topo_waves(made)
+        return made
+
+    def _evidence_path(self, digest: str) -> Path:
+        return self.evidence_dir / ("backlog-%s.md" % digest[:12])
+
+    def _ensure_evidence(self, record: dict, record_path: Path, text: str,
+                         digest: str) -> str:
+        canonical = self._evidence_path(digest)
+        try:
+            current = hashlib.sha256(canonical.read_bytes()).hexdigest()
+        except OSError:
+            current = None
+        if current != digest:
+            ensure_dir(self.evidence_dir)
+            atomic_write_text(canonical, text)
+        rel = str(canonical.resolve().relative_to(self.root.resolve()))
+        if record.get("artifact_ref") != rel:
+            record["artifact_ref"] = rel
+            record["updated_at"] = utc_now()
+            write_json(record_path, record)
+        return rel
+
+    def _complete_import(self, record: dict, record_path: Path, text: str,
+                         digest: str) -> None:
+        self._ensure_evidence(record, record_path, text, digest)
+        record["state"] = "complete"
+        record["completed_at"] = utc_now()
+        record["updated_at"] = utc_now()
+        write_json(record_path, record)
+
+    def _import_result(self, status, mission, rel_source, digest, expected,
+                       tasks, artifact_ref, extra=None):
+        result = {
+            "status": status,
+            "source": rel_source,
+            "sha256": digest,
+            "mission_id": mission["id"],
+            "task_ids": expected,
+            "tasks": [
+                {"id": t["id"], "priority": t.get("priority"),
+                 "depends_on": t["depends_on"]}
+                for t in tasks
+            ],
+            "artifact_ref": artifact_ref,
+        }
+        if extra:
+            result["extra_task_ids"] = extra
+        return result
+
+    def import_backlog(self, source: Optional[Path] = None) -> dict:
+        """Import pending tasks from backlog Markdown exactly once.
+
+        The operation is one-way: the backlog is never written, the mission is
+        never modified, and a changed source cannot overwrite an existing
+        mission. The import is journalled (``pending`` -> ``complete``) inside
+        the task lock; a failed attempt is rolled back or resumed on retry.
+        Repeating a completed import is a no-op.
+        """
+        mission = self.require_ready_mission()
+        raw = Path(source) if source else Path("backlog/backlog.md")
+        source_path = (raw if raw.is_absolute() else self.root / raw).resolve()
+        root = self.root.resolve()
+        if source_path != root and root not in source_path.parents:
+            raise JuicerError(
+                "backlog source must be inside the project root: %s"
+                % source_path)
+        if not source_path.is_file():
+            raise JuicerError("backlog file not found: %s" % source_path)
+        try:
+            text = source_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise JuicerError(
+                "cannot read backlog file %s: %s" % (source_path, exc))
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        rel_source = str(source_path.relative_to(root))
+
+        record_path = self.imports_dir / "backlog.json"
+        with state_lock(self.jdir, "tasks"):
+            existing = self._import_record(record_path)
+            current_tasks = self.load_tasks()
+            current_ids = {t["id"] for t in current_tasks}
+
+            if existing:
+                marker = self._mission_marker(mission)
+                if existing.get("mission_marker") != marker:
+                    raise JuicerError(
+                        "import record belongs to a different mission instance "
+                        "(%r, current %r); the current mission has no "
+                        "consistent one-way import (explicit reconciliation "
+                        "required)"
+                        % (existing.get("mission_marker"), marker))
+                if existing.get("mission_id") != mission["id"]:
+                    raise JuicerError(
+                        "import record belongs to mission %s, not %s; the "
+                        "current mission has no consistent one-way import "
+                        "(explicit reconciliation required)"
+                        % (existing.get("mission_id"), mission["id"]))
+                if existing.get("source") != rel_source:
+                    raise JuicerError(
+                        "import record is bound to %s, not %s; a different "
+                        "source file is not reconciled automatically"
+                        % (existing.get("source"), rel_source))
+                if existing.get("sha256") != digest:
+                    raise JuicerError(
+                        "backlog changed since the one-way import (%s); "
+                        "`.juicer/` is canonical. Create a new mission for new "
+                        "planning; the current mission is not overwritten."
+                        % rel_source)
+
+                expected = list(existing.get("task_ids") or [])
+                extra = sorted(current_ids - set(expected))
+                state = existing.get("state", "complete")
+
+                if state == "pending":
+                    if extra:
+                        raise JuicerError(
+                            "import journal is inconsistent (unexpected %s); "
+                            "explicit reconciliation is required"
+                            % ", ".join(extra))
+                    specs = self._parse_backlog_source(source_path, text)
+                    made = self._build_import_tasks(
+                        specs, mission, rel_source, digest,
+                        existing.get("imported_at") or utc_now())
+                    by_id = {task["id"]: task for task in made}
+                    if set(by_id) != set(expected):
+                        diff = sorted(set(by_id) ^ set(expected))
+                        raise JuicerError(
+                            "import journal task set does not match the "
+                            "source (%s); explicit reconciliation is required"
+                            % ", ".join(diff))
+                    for task in made:
+                        if task["id"] in current_ids:
+                            continue
+                        write_json(
+                            self.tasks_dir / ("%s.json" % task["id"]), task)
+                    self._complete_import(existing, record_path, text, digest)
+                    self._event(
+                        "backlog_imported",
+                        data={"source": rel_source, "sha256": digest,
+                              "mission_id": mission["id"],
+                              "task_ids": expected,
+                              "artifact_ref": existing.get("artifact_ref")},
+                        outcome="resumed")
+                    return self._import_result(
+                        "resumed", mission, rel_source, digest, expected,
+                        self.load_tasks(), existing.get("artifact_ref"))
+
+                missing = [tid for tid in expected if tid not in current_ids]
+                if missing:
+                    raise JuicerError(
+                        "import record is inconsistent (missing %s); explicit "
+                        "reconciliation is required" % ", ".join(missing))
+                artifact_ref = self._ensure_evidence(
+                    existing, record_path, text, digest)
+                return self._import_result(
+                    "unchanged", mission, rel_source, digest, expected,
+                    self.load_tasks(), artifact_ref, extra)
+
+            if current_tasks:
+                raise JuicerError(
+                    "mission already has tasks (%s); the one-way backlog "
+                    "import runs once into an empty mission and never "
+                    "overwrites an in-progress mission"
+                    % ", ".join(sorted(current_ids)))
+
+            specs = self._parse_backlog_source(source_path, text)
+            imported_at = utc_now()
+            made = self._build_import_tasks(
+                specs, mission, rel_source, digest, imported_at)
+            artifact_ref = str(
+                self._evidence_path(digest).resolve().relative_to(root))
+            record = {
+                "schema_version": 1,
+                "type": "backlog_import",
+                "state": "pending",
+                "source": rel_source,
+                "sha256": digest,
+                "imported_at": imported_at,
+                "updated_at": utc_now(),
+                "mission_id": mission["id"],
+                "mission_marker": self._mission_marker(mission),
+                "task_ids": [task["id"] for task in made],
+                "artifact_ref": artifact_ref,
+            }
+            ensure_dir(self.imports_dir)
+            write_json(record_path, record)
+            try:
+                for task in made:
+                    write_json(
+                        self.tasks_dir / ("%s.json" % task["id"]), task)
+                self._complete_import(record, record_path, text, digest)
+            except BaseException:
+                # Roll back this attempt: the mission started empty, so every
+                # task file belongs to the failed import.
+                for task in made:
+                    try:
+                        (self.tasks_dir / ("%s.json" % task["id"])).unlink()
+                    except OSError:
+                        pass
+                try:
+                    self._evidence_path(digest).unlink()
+                except OSError:
+                    pass
+                try:
+                    record_path.unlink()
+                except OSError:
+                    pass
+                raise
+            self._event(
+                "backlog_imported",
+                data={"source": rel_source, "sha256": digest,
+                      "mission_id": mission["id"],
+                      "task_ids": record["task_ids"],
+                      "artifact_ref": record.get("artifact_ref")},
+                outcome="imported")
+            return self._import_result(
+                "imported", mission, rel_source, digest, record["task_ids"],
+                made, record.get("artifact_ref"))
 
     def load_tasks(self) -> List[dict]:
         if not self.tasks_dir.exists():

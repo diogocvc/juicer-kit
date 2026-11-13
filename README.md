@@ -176,6 +176,7 @@ python3 bin/juicer integrate TASK-001
 | `juicer gap "question"` | Record an open question (keeps mission `waiting_human`) |
 | `juicer inspect` | Snapshot of project, dependencies, open tasks |
 | `juicer decompose tasks.json` | Validate and register tasks (stable IDs, dependencies) |
+| `juicer import-backlog [--file PATH]` | Validate backlog Markdown and import pending tasks once into an empty mission (one-way; never overwrites) |
 | `juicer status` | Mission state, eligibility, next action |
 | `juicer run [TASK-ID] [--jobs N]` | Execute eligible tasks (parallel or serial, with recorded reason) |
 | `juicer retry TASK-ID` | Re-run a failed or blocked task (new attempt, preserving history) |

@@ -20,6 +20,7 @@ EXECUTION_STATUS = ("claimed", "running", "succeeded", "failed", "cancelled")
 CHECK_STATUS = ("PASS", "FAIL", "BLOCKED", "NOT RUN")
 GATE_NAMES = ("verification", "review", "security", "approval")
 RISK_LEVELS = ("low", "medium", "high")
+PRIORITIES = ("P0", "P1", "P2", "P3")
 
 # Task status invariants (structural B.12/B.13):
 # - `completed` means pre-merge work finished; the change is NOT integrated.
@@ -122,6 +123,7 @@ def new_mission(mission_id: str, title: str, objective: str, scope=None, constra
     doc = {
         "schema_version": SCHEMA_VERSION,
         "id": mission_id,
+        "instance_id": uuid.uuid4().hex,
         "title": title,
         "objective": objective,
         "scope": scope or {},
@@ -200,6 +202,20 @@ def validate_task(doc: dict):
              "attempt_count must be a non-negative integer")
     _require(errors, isinstance(doc.get("allow_agent_commits", False), bool),
              "allow_agent_commits must be a boolean")
+    if "priority" in doc:
+        _require(errors, doc.get("priority") in PRIORITIES,
+                 "invalid priority %r (use P0, P1, P2 or P3)"
+                 % doc.get("priority"))
+    if "origin" in doc:
+        origin = doc.get("origin")
+        _require(errors, isinstance(origin, dict), "origin must be an object")
+        if isinstance(origin, dict):
+            _require(errors, isinstance(origin.get("source"), str)
+                     and bool(origin.get("source")),
+                     "origin.source is required")
+            _require(errors, isinstance(origin.get("sha256"), str)
+                     and bool(origin.get("sha256")),
+                     "origin.sha256 is required")
     _require(errors, bool(doc.get("created_at")), "created_at is required")
     _require(errors, bool(doc.get("updated_at")), "updated_at is required")
     if errors:
@@ -210,7 +226,7 @@ def validate_task(doc: dict):
 def new_task(task_id: str, mission_id: str, title: str, description: str,
              depends_on=None, acceptance_criteria=None, scope=None,
              approval_policy=None, agent="coder", checks=None,
-             allow_agent_commits=False, status="ready") -> dict:
+             allow_agent_commits=False, status="ready", priority=None) -> dict:
     now = utc_now()
     doc = {
         "schema_version": SCHEMA_VERSION,
@@ -234,6 +250,8 @@ def new_task(task_id: str, mission_id: str, title: str, description: str,
         "created_at": now,
         "updated_at": now,
     }
+    if priority is not None:
+        doc["priority"] = priority
     validate_task(doc)
     return doc
 

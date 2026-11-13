@@ -77,21 +77,21 @@
 
 **Priority**: P1-High
 
-**Status**: Pending
+**Status**: In Progress
 
 **Dependencies**: TASK-004
 
 **Acceptance Criteria**:
-- [ ] Importação valida schema, IDs únicos, dependências, prioridades e critérios.
-- [ ] IDs duplicados ou dependências inexistentes são rejeitados com erro claro.
-- [ ] Importação é unidirecional e não sobrescreve missão em andamento.
-- [ ] Alterações posteriores no backlog não alteram automaticamente a missão.
-- [ ] Importação é idempotente ou falha de forma segura quando repetida.
-- [ ] `TASK-001` e `TASK-002` permanecem intactas.
+- [x] Importação valida schema, IDs únicos, dependências, prioridades e critérios.
+- [x] IDs duplicados ou dependências inexistentes são rejeitados com erro claro.
+- [x] Importação é unidirecional e não sobrescreve missão em andamento.
+- [x] Alterações posteriores no backlog não alteram automaticamente a missão.
+- [x] Importação é idempotente ou falha de forma segura quando repetida.
+- [x] `TASK-001` e `TASK-002` permanecem intactas.
 
 **Estimated Effort**: 1,5–2 dev-days
 
-**Notes**: Ver seção 3 do plano. O backlog é fonte de planejamento; `.juicer/` é fonte operacional após importar.
+**Notes**: Ver seção 3 do plano. O backlog é fonte de planejamento; `.juicer/` é fonte operacional após importar. Implementado em `juicer/backlog.py` + `Juicer.import_backlog`/`juicer import-backlog`: parser read-only e estrito (cabeçalhos, fences, status/dependências obrigatórios), hash SHA-256, journal `pending`/`complete` com rollback ou retomada, cópia de evidência relativa em `.juicer/evidence/`, registro em `.juicer/imports/backlog.json`; dependências arquivadas em `backlog/done/` tratadas como satisfeitas; critérios `[x]` preservados como `satisfied`; notas importadas para a descrição. Testes: `tests/test_backlog_import.py` (48).
 
 ---
 

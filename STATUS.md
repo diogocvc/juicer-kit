@@ -33,7 +33,8 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
 | Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
 | Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 271 testes padrão + smoke |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 319 testes padrão + smoke |
+| Importação unidirecional do backlog | **supported (medida)** | `juicer/backlog.py` + `Juicer.import_backlog` valida schema/IDs/dependências/prioridades/critérios/escopo; importa uma vez em missão vazia, recusa missão com tarefas e backlog alterado, repete como `unchanged`; journal `pending`/`complete` com rollback ou retomada; `tests/test_backlog_import.py` |
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
 | Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
 | Checks pós-integração no commit mergeado | **supported** | testes de integrate |
@@ -99,7 +100,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 ```
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
-uv tool run pytest -q tests/                     # 271 passed (2026-11-11)
+uv tool run pytest -q tests/                     # 319 passed (2026-11-11)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário
 # v2.1.4 e devolveu JSON estrito; o NDJSON real foi reproduzido no caminho de
 # evidência (artefato PASS -> critérios -> done). Nova chamada ao vivo: HTTP
