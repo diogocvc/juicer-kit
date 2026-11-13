@@ -71,30 +71,6 @@
 
 ---
 
-### Task: [TASK-009] Implementar importação unidirecional do backlog
-
-**Description**: Importar tarefas do backlog Markdown para uma missão com validação de IDs, dependências, prioridades, critérios e escopo; após a importação, `.juicer/` é canônico e não há sincronização bidirecional silenciosa.
-
-**Priority**: P1-High
-
-**Status**: In Progress
-
-**Dependencies**: TASK-004
-
-**Acceptance Criteria**:
-- [x] Importação valida schema, IDs únicos, dependências, prioridades e critérios.
-- [x] IDs duplicados ou dependências inexistentes são rejeitados com erro claro.
-- [x] Importação é unidirecional e não sobrescreve missão em andamento.
-- [x] Alterações posteriores no backlog não alteram automaticamente a missão.
-- [x] Importação é idempotente ou falha de forma segura quando repetida.
-- [x] `TASK-001` e `TASK-002` permanecem intactas.
-
-**Estimated Effort**: 1,5–2 dev-days
-
-**Notes**: Ver seção 3 do plano. O backlog é fonte de planejamento; `.juicer/` é fonte operacional após importar. Implementado em `juicer/backlog.py` + `Juicer.import_backlog`/`juicer import-backlog`: parser read-only e estrito (cabeçalhos, fences, status/dependências obrigatórios), hash SHA-256, journal `pending`/`complete` com rollback ou retomada, cópia de evidência relativa em `.juicer/evidence/`, registro em `.juicer/imports/backlog.json`; dependências arquivadas em `backlog/done/` tratadas como satisfeitas; critérios `[x]` preservados como `satisfied`; notas importadas para a descrição. Testes: `tests/test_backlog_import.py` (48).
-
----
-
 ### Task: [TASK-010] Alinhar agentes, comandos e documentação ao alvo V2
 
 **Description**: Alinhar a ordem dos gates e os contratos de `@orchestrator`, `@reviewer`, `@security` e `@tester` com o core; corrigir `AGENTS.md`, README, STATUS e referências ao plano para o alvo OpenCode 2.0/V2, sem criar agentes e sem apagar histórico de medições já realizadas.
