@@ -71,32 +71,6 @@
 
 ---
 
-### Task: [TASK-010] Alinhar agentes, comandos e documentação ao alvo V2
-
-**Description**: Alinhar a ordem dos gates e os contratos de `@orchestrator`, `@reviewer`, `@security` e `@tester` com o core; corrigir `AGENTS.md`, README, STATUS e referências ao plano para o alvo OpenCode 2.0/V2, sem criar agentes e sem apagar histórico de medições já realizadas.
-
-**Priority**: P1-High
-
-**Status**: In Progress
-
-**Dependencies**: TASK-005, TASK-006
-
-**Acceptance Criteria**:
-- [x] `AGENTS.md` declara 4.0, a ordem canônica e a separação backlog/`.juicer`.
-- [x] `@orchestrator` não promete gate que o core não aplica.
-- [x] `@reviewer` continua sem permissão de edição e é acionado antes do merge.
-- [x] `@security` é acionado por risco e não substitui revisão.
-- [x] README e STATUS apontam para o plano, distinguem capacidade **medida** de lacuna planejada e refletem o alvo V2 sem anunciar compatibilidade não comprovada.
-- [x] `docs/HARNESS_CONTRACT.md` e comentários do adaptador estão alinhados ao alvo V2; referências V1 remanescentes são atualizadas ou marcadas como histórico.
-- [x] Comandos `/review` e `/test` permanecem compatíveis com o fluxo.
-- [x] Permissões V2 (quando citadas) não são apresentadas como substitutas dos gates do core.
-
-**Estimated Effort**: 1–1,5 dev-day
-
-**Notes**: Ver seção 12 do plano. Depende dos gates de TASK-005/006 e da validação de capabilities da TASK-003 para não prometer o que não foi medido. Não alterar silenciosamente decisões aprovadas. Implementado sem criar agentes: `AGENTS.md`, `.opencode/agents/{orchestrator,reviewer,security,tester}.md`, `.opencode/commands/{review,test,add-backlog}.md`, README, STATUS, `docs/HARNESS_CONTRACT.md` e comentários de `juicer/harness/opencode.py` alinhados à ordem `implementação → checks → review → segurança (risco) → aprovação → merge → pós-merge → done`. Contrato documental coberto por `tests/test_docs_alignment.py` (18 testes).
-
----
-
 ### Task: [TASK-011] Validar fluxo E2E V2 e aceitação do MVP
 
 **Description**: Validar o fluxo completo em repositório temporário com OpenCode 2.0/V2 real (binário medido, não apenas documental) e cobrir os caminhos negativos que hoje poderiam produzir conclusão indevida.
