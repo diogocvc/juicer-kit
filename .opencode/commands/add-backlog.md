@@ -40,6 +40,7 @@ When invoked, add the described task to the backlog.
 
 **Description**: [What needs to be done]
 **Priority**: [P0-P3]
+**Status**: Pending
 **Dependencies**: [List or None]
 **Acceptance Criteria**:
 - [ ] Criterion 1
@@ -62,3 +63,7 @@ When invoked, add the described task to the backlog.
   - P3: Nice to have, low priority
 - Ask for clarification if acceptance criteria are unclear.
 - Always confirm before starting a task.
+- After a validated `juicer import-backlog`, `.juicer/` is canonical: new
+  Markdown backlog entries are not synchronized into an existing mission.
+  Import only into a new/empty mission and use the Markdown board as planning
+  source from then on.

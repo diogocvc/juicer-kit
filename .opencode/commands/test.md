@@ -6,6 +6,8 @@ agent: tester
 # Command: /test
 
 When invoked, create and run comprehensive tests for the current code.
+Run after implementation and before review; the core's checks remain
+authoritative.
 
 ## Steps
 
@@ -20,18 +22,18 @@ When invoked, create and run comprehensive tests for the current code.
      - Error scenarios (invalid input, failures).
 
 3. **Write Tests**
-   - Create test files (e.g., `*.test.ts`).
+   - Create test files following project conventions.
    - Use descriptive test names.
-   - Follow project testing conventions (Jest, Vitest, etc.).
 
 4. **Run Tests**
-   - Execute the test suite.
+   - Execute the test suite (this repository:
+     `uv tool run pytest tests/ -q --ignore=tests/test_opencode_smoke.py`).
    - Report results (passed, failed, skipped).
    - Fix flaky tests if any.
 
 5. **Report Coverage**
    - Show line and branch coverage.
-   - Identify gaps.
+   - Identify gaps. `NOT RUN` or skipped is never a pass.
 
 ## Output Format
 

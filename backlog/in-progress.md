@@ -2,19 +2,12 @@
 
 ## Current Tasks
 
-### Task: [TASK-XXX] [Title]
+_Nenhuma tarefa em andamento._
 
-**Started At**: [YYYY-MM-DD HH:mm]
+TASK-011 foi concluída (revisão e security aprovadas, commit `b93005d`, checks
+pós-merge 346 passed) e movida para `backlog/done/`.
 
-**Assigned To**: [@agent-name]
-
-**Current Step**: [What is being done now]
-
-**Blockers**: [Any blockers]
-
-**Progress**:
-- [x] Step 1
-- [ ] Step 2
-- [ ] Step 3
-
-**Notes**: [Updates during execution]
+Todas as tarefas planejadas do 4.0 estão concluídas. Follow-ups não bloqueantes
+registrados no fechamento da TASK-011: repetir `review-run`/`security-run` ao
+vivo com quota disponível e avaliar proteção de `.opencode/`/`AGENTS.md` e
+varredura de arquivos ignorados.

@@ -25,46 +25,4 @@
 
 ## Pending Tasks
 
-### Task: [TASK-001] Create user authentication with JWT
-
-**Description**: Implement JWT-based authentication with access and refresh tokens.
-
-**Priority**: P1-High
-
-**Status**: Pending
-
-**Dependencies**: None
-
-**Acceptance Criteria**:
-- [ ] User can register with email/password
-- [ ] User can login and receive JWT tokens
-- [ ] Refresh token flow works correctly
-- [ ] Protected routes require valid token
-- [ ] Tests cover all scenarios
-
-**Estimated Effort**: L
-
-**Notes**: Use bcrypt for password hashing, store tokens in httpOnly cookies.
-
----
-
-### Task: [TASK-002] Create user profile API
-
-**Description**: Build REST API for user profile management.
-
-**Priority**: P2-Medium
-
-**Status**: Pending
-
-**Dependencies**: TASK-001
-
-**Acceptance Criteria**:
-- [ ] GET /api/users/:id returns profile
-- [ ] PUT /api/users/:id updates profile
-- [ ] DELETE /api/users/:id deletes account
-- [ ] Authorization checks (user can only edit own profile)
-- [ ] Tests cover all scenarios
-
-**Estimated Effort**: M
-
-**Notes**: Include validation with Zod.
+_Nenhuma tarefa pendente._

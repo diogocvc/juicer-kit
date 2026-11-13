@@ -2,7 +2,9 @@
 
 A specialized agent kit for OpenCode, inspired by Mission Kit and optimized for workflows with human autonomy, security, and quality.
 
-**Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and crash recovery. The 3.x Markdown kit (agents, commands, skills) is unchanged and still works on its own.
+**Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and checkpoint/resume. The 3.x Markdown kit (agents, commands, skills) remains usable standalone and is evolved in 4.0 to follow the core's gate order.
+
+**Target harness**: OpenCode 2.x/V2 (measured in this environment as `opencode v2.2.7`). V1 binaries may be detected for diagnostics but are `degraded`; compatibility with V1 is not promised. See [STATUS.md](STATUS.md) for measured capabilities versus planned gaps.
 
 ## 🎯 Objective
 
@@ -35,14 +37,17 @@ juicer-kit/
 │   ├── gitops.py             # Worktrees, explicit merge, conflict abort
 │   ├── orchestrator.py       # Mission → run → integrate → resume flow
 │   └── harness/
-│       └── opencode.py       # OpenCode adapter (run --format json --dir)
-├── tests/                    # 64 pytest tests (fakes + real git worktrees)
+│       ├── contract.py       # discover/run request-result contract
+│       └── opencode.py       # OpenCode V2 adapter (run --format json --standalone)
+├── tests/                    # 345 default pytest tests + 2 opt-in V2 smoke checks
 ├── backlog/
 │   ├── backlog.md            # Pending tasks
 │   ├── in-progress.md        # Tasks in progress
 │   └── done/                 # Completed tasks
 ├── docs/
-│   └── GUIDE.md              # Complete guide
+│   ├── GUIDE.md              # Complete guide
+│   ├── HARNESS_CONTRACT.md   # Internal harness contract
+│   └── PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md  # Approved 4.0 plan
 └── .opencode/
     ├── agents/               # 18 specialized agents
     │   ├── orchestrator.md       # Master coordinator & PO
@@ -114,24 +119,34 @@ git submodule update --remote
 
 The symlink already points to the updated content — restart OpenCode after updating.
 
-### Option 4: Use the orchestration core (4.0.0)
+### Option 3: Use the orchestration core (4.0.0)
 
 ```bash
 # In your project (needs python3 and git on PATH)
 python3 /path/to/juicer-kit/bin/juicer init
 ```
 
-`init` creates `.juicer/` (mission, tasks, worktrees, evidence, events) plus a scoped `.gitignore`. From there, drive a mission from the CLI (see the workflow section below). The OpenCode binary is auto-detected (`OPENCODE_BIN` → `PATH` → Zed registry); override with `export OPENCODE_BIN=/path/to/opencode`.
+`init` creates `.juicer/` (mission, tasks, worktrees, evidence, events) plus a scoped `.gitignore`. From there, drive a mission from the CLI (see the workflow section below). The OpenCode binary is auto-detected (`OPENCODE_BIN` → `PATH` → `~/.opencode/bin` → Zed registry, preferring a V2 candidate); override with `export OPENCODE_BIN=/path/to/opencode`.
+
+### Option 4: Symlink (local development)
+
+```bash
+# In your new project
+ln -s ~/path/to/juicer-kit/.opencode ./.opencode
+ln -s ~/path/to/juicer-kit/backlog ./backlog
+```
 
 ## 🧃 Orchestration Core (4.0.0)
 
 The core turns a mission into isolated, auditable executions through OpenCode:
 
-1. Each task runs via `opencode run --format json --agent <agent> --dir <worktree>`.
-2. Work runs in a **dedicated git worktree/branch** (`juicer/<TASK-ID>`) — never on your checkout.
+1. Each task runs via `opencode run --format json --agent <agent> --standalone` with the worktree as both the process CWD and `PWD` (V2 resolves the project from `PWD`).
+2. Work runs in a **dedicated git worktree/branch** (`juicer/<TASK-ID>`; retries use `juicer/<TASK-ID>-attempt-<n>`) — never on your checkout.
 3. The agent's prose is never evidence; only the commit, diff, captured output and **deterministic checks** are.
-4. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes) and post-merge checks on the merged commit.
-5. State is crash-safe: atomic writes, `flock`, revision fences, JSONL events, `juicer resume` after interruption.
+4. **Review/security are evidence gates when the task policy requires them**: `juicer review-run` / `security-run` trigger the existing `@reviewer`/`@security` agents, require one structured JSON block in their output, and the core records the artifact linked to commit/tree. The task must be `completed` and its worktree present, free of tracked changes and at the task commit; otherwise the command refuses with `BLOCKED` instead of reviewing the wrong tree. Missing, stale or malformed evidence blocks the merge when the corresponding gate is declared. Security is not added implicitly, including for high-risk tasks: declare `security` in `required_gates`; high risk always requires recorded human approval.
+5. **Human approval is a separate, recorded gate**: when the policy requires it (or the task is high risk), `juicer approve TASK-ID --approver <name>` records an approval linked to the exact commit/tree. `integrate --approve` only states the merge intent and is refused without that record — approval is never anonymous, never inferred, and never changes a technical gate result.
+6. Integration is an explicit `juicer integrate` with `--no-ff` merge, a technical gate (PASS/FAIL/BLOCKED/NOT RUN — NOT RUN never passes), acceptance-criteria evaluation and post-merge checks on the merged commit.
+7. State uses atomic writes, `flock`, revision fences, JSONL events and `juicer resume` after interruption; resume reconciliation is covered by tests (see [STATUS.md](STATUS.md)).
 
 ### Quick start
 
@@ -158,6 +173,7 @@ EOF
 python3 bin/juicer decompose tasks.json
 python3 bin/juicer status
 python3 bin/juicer run TASK-001        # or: juicer run --jobs 4
+python3 bin/juicer review-run TASK-001 # trigger @reviewer, record structured evidence
 python3 bin/juicer integrate TASK-001
 ```
 
@@ -170,10 +186,16 @@ python3 bin/juicer integrate TASK-001
 | `juicer gap "question"` | Record an open question (keeps mission `waiting_human`) |
 | `juicer inspect` | Snapshot of project, dependencies, open tasks |
 | `juicer decompose tasks.json` | Validate and register tasks (stable IDs, dependencies) |
+| `juicer import-backlog [--file PATH]` | Validate backlog Markdown and import pending tasks once into an empty mission (one-way; never overwrites) |
 | `juicer status` | Mission state, eligibility, next action |
 | `juicer run [TASK-ID] [--jobs N]` | Execute eligible tasks (parallel or serial, with recorded reason) |
-| `juicer retry TASK-ID` | Re-run a failed task (new attempt, same identity) |
-| `juicer integrate TASK-ID` | Gate + explicit merge + post-merge checks |
+| `juicer retry TASK-ID` | Re-run a failed or blocked task (new attempt, preserving history) |
+| `juicer review TASK-ID --commit --tree-hash` | Record a structured review artifact (manual or external agent) |
+| `juicer security TASK-ID --commit --tree-hash` | Record a structured security artifact |
+| `juicer review-run TASK-ID` | Trigger the existing `@reviewer`, record evidence from its JSON output |
+| `juicer security-run TASK-ID` | Trigger the existing `@security`, record evidence from its JSON output |
+| `juicer approve TASK-ID --approver NAME [--reason][--note]` | Record human approval linked to the task commit/tree (never anonymous; notes reject secrets) |
+| `juicer integrate TASK-ID [--approve]` | Gates + criteria + explicit merge + post-merge checks |
 | `juicer checkpoint` | Force a consistency checkpoint |
 | `juicer resume` | Recover interrupted tasks after a crash/restart |
 | `juicer events` | Tail the append-only JSONL event log |
@@ -186,15 +208,7 @@ python3 bin/juicer integrate TASK-001
 - **Audit trail**: `.juicer/evidence/` (sessions, diffs, check logs), `.juicer/executions/`, `.juicer/events.jsonl`.
 - **Honest statuses**: `PASS / FAIL / BLOCKED / NOT RUN` — a result that could not be obtained is never a pass.
 
-Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
-
-### Option 3: Symlink (local development)
-
-```bash
-# In your new project
-ln -s ~/path/to/juicer-kit/.opencode ./.opencode
-ln -s ~/path/to/juicer-kit/backlog ./backlog
-```
+Implementation plan, phases, gates and backlog mapping: see [docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md](docs/PLANO_IMPLEMENTACAO_JUICER_KIT_4.0.md). Internal harness contract: see [docs/HARNESS_CONTRACT.md](docs/HARNESS_CONTRACT.md). Full capability matrix and known limitations (OpenCode version pinned in the environment, headless permissions, local-only coordination): see [STATUS.md](STATUS.md).
 
 ## 🔧 Configuration
 
@@ -304,9 +318,9 @@ Or call specific agents:
 @architect Design a JWT-based authentication system with refresh tokens.
 @planner Break down the architecture into implementable tasks.
 @coder Implement task 1: Create the auth middleware.
+@tester Write and run tests for the auth module.
 @reviewer Review the changes in src/auth/.
 @security Audit the auth implementation for OWASP compliance.
-@tester Write and run tests for the auth module.
 ```
 
 ### Managing Backlog
@@ -341,48 +355,51 @@ Read `backlog/backlog.md` (pending tasks) and `backlog/in-progress.md` (tasks in
 
 ### Recommended Pipelines
 
-The `@orchestrator` already follows defined pipelines, but you can invoke them manually:
+The `@orchestrator` follows the core's gate order:
+**implementation → deterministic checks → review → security (risk) → human
+approval (when required) → merge/integrate → post-merge checks → done**.
+You can invoke the steps manually:
 
 #### New Feature
 
 ```
-@finder → @analyst → @architect → @planner → @coder → @reviewer → @tester → @documenter
+@finder → @analyst → @architect → @planner → @coder → @tester → @reviewer → @documenter
 ```
 
 #### New Feature (with Security)
 
 ```
-@finder → @analyst → @researcher → @architect → @planner → @coder → @reviewer → @security → @tester → @documenter
+@finder → @analyst → @researcher → @architect → @planner → @coder → @tester → @reviewer → @security → @documenter
 ```
 
 #### Bug Fix (Unknown Cause)
 
 ```
-@finder → @debugger → @fixer → @reviewer → @tester
+@finder → @debugger → @fixer → @tester → @reviewer
 ```
 
 #### Bug Fix (Known Cause)
 
 ```
-@finder → @fixer → @reviewer → @tester
+@finder → @fixer → @tester → @reviewer
 ```
 
 #### Refactoring
 
 ```
-@finder → @analyst → @refactorer → @reviewer → @tester
+@finder → @analyst → @refactorer → @tester → @reviewer
 ```
 
 #### Performance Optimization
 
 ```
-@finder → @analyst → @optimizer → @reviewer → @tester
+@finder → @analyst → @optimizer → @tester → @reviewer
 ```
 
 #### Infrastructure Changes
 
 ```
-@finder → @devops → @reviewer → @tester
+@finder → @devops → @tester → @reviewer
 ```
 
 ### Slash Commands (if configured)
@@ -420,9 +437,9 @@ If you copied the kit's `.opencode/skills/` folder, the agent loads a skill auto
 
 ### Mandatory Rules
 
-- **Always** run `@reviewer` after code changes.
-- **Always** run `@tester` after implementation.
-- **Always** run `@security` on features with:
+- **Always** run `@tester` after implementation to produce deterministic evidence.
+- **Always** run `@reviewer` after checks and before merge.
+- **Always** run `@security` (after review) on features with:
   - Authentication or authorization.
   - User data (PII).
   - Secrets or API keys.
@@ -431,13 +448,18 @@ If you copied the kit's `.opencode/skills/` folder, the agent loads a skill auto
 
 ### Quality Gates
 
-The `@orchestrator` enforces the following gates:
+The core (and `@orchestrator` when coordinating) follows this order:
 
 1. **Planning approved** → Implementation.
-2. **Implementation complete** → Review.
-3. **Review approved** → Testing.
-4. **Tests passing** → Documentation.
-5. **Documentation complete** → Done.
+2. **Implementation complete** → Deterministic checks (`@tester`).
+3. **Checks PASS** → Code review (`@reviewer`).
+4. **Review approved** → Security (`@security`, when risk applies).
+5. **Technical gates + criteria** → Human approval (when required).
+6. **Explicit merge/integrate** → Post-merge checks → Done.
+
+`NOT RUN` never passes, critical findings block the merge when the review gate
+is declared, and human approval never replaces tests or review. V2 permissions
+are an additional barrier, not a substitute for these gates.
 
 If you don't use `@orchestrator`, follow these gates manually.
 
@@ -479,8 +501,8 @@ All 18 agents are peers: each one is a file in `.opencode/agents/`, loaded by Op
 
 | Agent | Function | When to Use |
 |--------|--------|-------------|
-| `@reviewer` | Quality review, best practices, issue identification. | After any code change (mandatory). |
-| `@tester` | Creates and runs unit, integration, and E2E tests. | After implementation and review (mandatory). |
+| `@reviewer` | Quality review, best practices, issue identification. | After deterministic checks and before merge (mandatory). |
+| `@tester` | Creates and runs unit, integration, and E2E tests. | After implementation, before review (mandatory). |
 | `@debugger` | Investigates bugs with unknown cause. | Bug without clear cause. |
 | `@security` | Security audit, OWASP, sensitive data, auth. | Features with auth, user data, secrets, external APIs (mandatory). |
 

@@ -35,3 +35,7 @@ class ScopeViolationError(JuicerError):
 
 class PathConfinementError(JuicerError):
     """Attempted to read/write outside the allowed root."""
+
+
+class ApprovalError(JuicerError):
+    """Human approval record rejected (anonymous, secret-bearing, malformed)."""

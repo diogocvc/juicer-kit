@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.0.0 — 2026-10-23
+## 4.0.0 — 2026-11-13
 
 Primeira versão com core executável, fiel ao modelo aprovado no documento
 estrutural v2.0 (escopo MVP) e no mapa de atividades v2.
@@ -23,20 +23,25 @@ estrutural v2.0 (escopo MVP) e no mapa de atividades v2.
     conflito aborta sem sobrescrever, evidência de diff.
   - `harness/opencode.py` — adapter OpenCode: detecção de binário
     (`OPENCODE_BIN` → PATH → registry Zed), `run --format json --agent`,
-    `--dir` fixo para worktrees, captura de session id/exit code; texto do
-    agente nunca é tratado como prova.
+    workspace isolado por `cwd` + `PWD` (V2 não tem `--dir`), captura de
+    session id/exit code; texto do agente nunca é tratado como prova.
   - `orchestrator.py` — fluxo vertical: missão (com lacunas → waiting_human),
-    inspeção, decomposição, execução isolada, checks, integração com gate +
-    pós-merge, checkpoint/resume.
+    inspeção, decomposição, execução isolada, checks, importação unidirecional
+    de backlog, gates de review/security, aprovação humana vinculada a
+    commit/tree, integração com gate + pós-merge, checkpoint/resume.
+  - `backlog.py` — importação one-way do Markdown com validação de schema,
+    IDs, dependências, prioridades, critérios e escopo; journal com rollback e
+    retomada.
   - `cli.py` + `bin/juicer` — comandos `init`, `mission`, `gap`, `inspect`,
-    `decompose`, `status`, `run`, `retry`, `integrate`, `checkpoint`,
-    `resume`, `events`, `discover`.
-- `tests/` — 64 testes (pytest): estado/retomada, grafo, elegibilidade,
-  falha+recuperação, captura por tarefa, gates NOT RUN/FAIL/BLOCKED,
-  proteção de docs aprovados e mudanças pré-existentes, paralelismo isolado
-  (worktrees reais), integração com pós-merge, adapter com fake binário,
-  CLI.
-- `STATUS.md` — matriz de capacidades validado/pendente e limitações.
+    `decompose`, `import-backlog`, `status`, `run`, `retry`, `review`,
+    `security`, `review-run`, `security-run`, `approve`, `integrate`,
+    `checkpoint`, `resume`, `events`, `discover`.
+- `tests/` — 345 testes (pytest): estado/retomada, transições, grafo,
+  elegibilidade, falha+recuperação, captura por tarefa, gates
+  NOT RUN/FAIL/BLOCKED, isolamento/escopo/paths protegidos, commits do agente,
+  revisão/segurança/aprovação, importação de backlog, E2E V2 com fluxo
+  completo e caminhos negativos, adapter com fake binário e CLI.
+- `STATUS.md` — matriz de capacidades validadas/pendentes e limitações.
 
 ### Não alterado
 
@@ -46,8 +51,13 @@ estrutural v2.0 (escopo MVP) e no mapa de atividades v2.
 
 ### Limitações registradas
 
-- OpenCode validado: 1.19.4 (referência cita 2.0; só a integração foi
-  adaptada — ver STATUS.md).
+- OpenCode validado: **2.2.7 (V2)** — `discover` v2=true, smoke de
+  capabilities, execução real de `run`+checks+integração+pós-merge e E2E
+  determinístico completo. `review-run`/`security-run` ao vivo ficaram
+  bloqueados por quota/limite do provider (HTTP 402/429); o caminho é coberto
+  por testes. V1 permanece degradado e fora do alvo (ver STATUS.md).
+- Workspace V2 resolvido por `cwd` + `PWD`; worktrees devem permanecer dentro
+  do projeto para a descoberta de `.opencode/`.
 - Sem coordenação entre máquinas, sem preview/URL, sem deploy: fora do MVP
   aprovado.
 

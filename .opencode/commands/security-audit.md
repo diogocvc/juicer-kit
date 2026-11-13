@@ -1,5 +1,6 @@
 ---
 description: "Audit code for security vulnerabilities (OWASP, auth, PII, secrets)."
+agent: security
 ---
 
 # Command: /security-audit

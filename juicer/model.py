@@ -18,6 +18,16 @@ MISSION_STATUS = ("draft", "waiting_human", "ready", "active", "done")
 TASK_STATUS = ("ready", "in_progress", "blocked", "failed", "completed", "done")
 EXECUTION_STATUS = ("claimed", "running", "succeeded", "failed", "cancelled")
 CHECK_STATUS = ("PASS", "FAIL", "BLOCKED", "NOT RUN")
+GATE_NAMES = ("verification", "review", "security", "approval")
+RISK_LEVELS = ("low", "medium", "high")
+PRIORITIES = ("P0", "P1", "P2", "P3")
+
+# Task status invariants (structural B.12/B.13):
+# - `completed` means pre-merge work finished; the change is NOT integrated.
+# - `done` is only reachable after explicit merge and a post-merge gate PASS.
+# - Post-merge failure must leave the task `blocked`, never `completed`/`done`.
+# - `blocked` and `failed` are explicitly retriable; `done` is terminal.
+# - `in_progress` is never a stable end state: resume must reconcile it.
 
 TASK_TRANSITIONS = {
     ("ready", "in_progress"),
@@ -41,6 +51,21 @@ EXECUTION_TRANSITIONS = {
 }
 
 _ID_RE = re.compile(r"^[A-Z][A-Z0-9]*-[A-Za-z0-9._-]+$")
+# Acceptance criterion verification forms (plan §6):
+# - check:<id>  deterministic check result
+# - review      review evidence artifact linked to commit/tree
+# - security    security evidence artifact linked to commit/tree
+# - human       explicit human approval
+_CHECK_VERIFICATION_RE = re.compile(r"^check:[A-Za-z0-9._-]+$")
+SIMPLE_VERIFICATIONS = ("review", "security", "human")
+
+
+def is_valid_verification(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    if value in SIMPLE_VERIFICATIONS:
+        return True
+    return bool(_CHECK_VERIFICATION_RE.match(value))
 
 
 def new_run_id() -> str:
@@ -50,6 +75,20 @@ def new_run_id() -> str:
 def check_transition(entity: str, current: str, target: str, allowed) -> None:
     if (current, target) not in allowed:
         raise InvalidTransitionError("%s: transition %s -> %s not allowed" % (entity, current, target))
+
+
+def transition_task(doc: dict, target: str) -> dict:
+    """Apply a validated task status transition in place."""
+    check_transition("task", doc.get("status"), target, TASK_TRANSITIONS)
+    doc["status"] = target
+    return doc
+
+
+def transition_execution(doc: dict, target: str) -> dict:
+    """Apply a validated execution status transition in place."""
+    check_transition("execution", doc.get("status"), target, EXECUTION_TRANSITIONS)
+    doc["status"] = target
+    return doc
 
 
 def _require(errors, cond, msg):
@@ -84,6 +123,7 @@ def new_mission(mission_id: str, title: str, objective: str, scope=None, constra
     doc = {
         "schema_version": SCHEMA_VERSION,
         "id": mission_id,
+        "instance_id": uuid.uuid4().hex,
         "title": title,
         "objective": objective,
         "scope": scope or {},
@@ -127,16 +167,55 @@ def validate_task(doc: dict):
             if c["id"] in seen:
                 errors.append("duplicate acceptance criterion id %s" % c["id"])
             seen.add(c["id"])
-            _require(errors, bool(c.get("verification")), "criterion %s needs verification" % c["id"])
+            verification = c.get("verification")
+            _require(errors, bool(verification), "criterion %s needs verification" % c["id"])
+            if verification and not is_valid_verification(verification):
+                errors.append(
+                    "criterion %s has invalid verification %r "
+                    "(use check:<id>, review, security or human)"
+                    % (c["id"], verification))
     scope = doc.get("scope", {})
     _require(errors, isinstance(scope, dict) and isinstance(scope.get("paths", []), list),
              "scope.paths must be a list")
+    if isinstance(scope, dict) and "protected_paths" in scope:
+        _require(errors, isinstance(scope.get("protected_paths"), list),
+                 "scope.protected_paths must be a list")
     policy = doc.get("approval_policy", {})
     _require(errors, isinstance(policy, dict), "approval_policy must be an object")
+    if isinstance(policy, dict):
+        required = policy.get("required_gates")
+        if required is not None:
+            _require(errors, isinstance(required, list),
+                     "approval_policy.required_gates must be a list")
+            if isinstance(required, list):
+                unknown = [g for g in required if g not in GATE_NAMES]
+                _require(errors, not unknown,
+                         "unknown required_gates: %s"
+                         % ", ".join(str(g) for g in unknown))
+        risk = policy.get("risk_level")
+        if risk is not None:
+            _require(errors, risk in RISK_LEVELS,
+                     "invalid risk_level %r (use low, medium or high)" % risk)
     _require(errors, isinstance(doc.get("depends_on", []), list), "depends_on must be a list")
     _require(errors, "revision" in doc, "revision is required")
     _require(errors, isinstance(doc.get("attempt_count", 0), int) and doc.get("attempt_count", 0) >= 0,
              "attempt_count must be a non-negative integer")
+    _require(errors, isinstance(doc.get("allow_agent_commits", False), bool),
+             "allow_agent_commits must be a boolean")
+    if "priority" in doc:
+        _require(errors, doc.get("priority") in PRIORITIES,
+                 "invalid priority %r (use P0, P1, P2 or P3)"
+                 % doc.get("priority"))
+    if "origin" in doc:
+        origin = doc.get("origin")
+        _require(errors, isinstance(origin, dict), "origin must be an object")
+        if isinstance(origin, dict):
+            _require(errors, isinstance(origin.get("source"), str)
+                     and bool(origin.get("source")),
+                     "origin.source is required")
+            _require(errors, isinstance(origin.get("sha256"), str)
+                     and bool(origin.get("sha256")),
+                     "origin.sha256 is required")
     _require(errors, bool(doc.get("created_at")), "created_at is required")
     _require(errors, bool(doc.get("updated_at")), "updated_at is required")
     if errors:
@@ -146,7 +225,8 @@ def validate_task(doc: dict):
 
 def new_task(task_id: str, mission_id: str, title: str, description: str,
              depends_on=None, acceptance_criteria=None, scope=None,
-             approval_policy=None, agent="coder", checks=None, status="ready") -> dict:
+             approval_policy=None, agent="coder", checks=None,
+             allow_agent_commits=False, status="ready", priority=None) -> dict:
     now = utc_now()
     doc = {
         "schema_version": SCHEMA_VERSION,
@@ -161,6 +241,7 @@ def new_task(task_id: str, mission_id: str, title: str, description: str,
         "approval_policy": approval_policy or {"human_approval_required": False, "required_gates": ["verification"]},
         "agent": agent,
         "checks": checks or [],
+        "allow_agent_commits": bool(allow_agent_commits),
         "current_execution_id": None,
         "result": None,
         "replaces_task_id": None,
@@ -169,6 +250,8 @@ def new_task(task_id: str, mission_id: str, title: str, description: str,
         "created_at": now,
         "updated_at": now,
     }
+    if priority is not None:
+        doc["priority"] = priority
     validate_task(doc)
     return doc
 
