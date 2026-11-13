@@ -6,23 +6,29 @@ agent: reviewer
 # Command: /review
 
 When invoked, review the given code changes using the code-review-checklist skill.
+Run after deterministic checks and before merge; this command is read-only.
 
 ## Steps
 
 1. **Read the Changes**
    - Review all modified and new files.
-   - Understand the context and purpose.
+   - Confirm which commit/tree is being reviewed.
 
 2. **Apply the Checklist**
    - Use the `code-review-checklist` skill.
    - Check functionality, quality, testing, security, performance, documentation, and consistency.
 
-3. **Document Findings**
+3. **Verify Evidence**
+   - Confirm tests/checks ran and are linked to the same commit/tree.
+   - Treat missing, stale or `NOT RUN` evidence as a blocker, never a pass.
+
+4. **Document Findings**
    - List issues by severity (critical, medium, suggestions).
    - Provide actionable recommendations.
 
-4. **Give a Verdict**
+5. **Give a Verdict**
    - Approve, approve with suggestions, or request changes.
+   - Critical findings require changes.
 
 ## Output Format
 

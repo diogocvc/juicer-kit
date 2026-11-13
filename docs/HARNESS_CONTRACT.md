@@ -43,14 +43,14 @@ alvo do MVP).
 | `run` | `run --help` respondeu com sucesso. |
 | `run_json` | `--format` com `json` detectado na ajuda. |
 | `agent_flag` | `--agent` detectado na ajuda. |
-| `dir_flag` | `--dir` detectado (V1); **ausente na V2 medida**. |
+| `dir_flag` | `--dir` detectado; **ausente na V2 medida**. Campo histórico, relevante apenas para diagnóstico de binários V1. |
 | `session_flag` | `--session` detectado na ajuda. |
 | `session_resume` | Retomada de sessão comprovada; ainda `false` até probe real. |
 | `continue_flag` | `--continue` detectado na ajuda. |
 | `standalone_flag` | `--standalone` detectado (V2); padrão do adaptador para isolar sessões. |
 | `server` | `serve --help` respondeu com sucesso. |
 | `auto_flag` | `--auto` existe, mas não é usado por padrão. |
-| `permissions` | Política granular medida; por enquanto `unknown` (config V2 documental). |
+| `permissions` | Política granular documental; medição pendente (`unknown`). |
 | `cancel` | Forma de cancelamento; adapter usa timeout/processo. |
 | `events` | Formato de saída; `jsonl-stream` (eventos V2 com `part`). |
 | `worktree` | Isolamento; `git-cli` no core. |
@@ -109,12 +109,17 @@ core.
 - Saída JSON inválida não derruba a execução; o parse é tolerante e o exit code
   continua sendo a fonte de sucesso do processo.
 
-## V1 e V2
+## Alvo V2 e histórico V1
 
-O MVP usa OpenCode 2.x/V2. O adaptador é único e V2-first; um binário V1 ainda
-pode ser apontado via `OPENCODE_BIN` para diagnóstico, mas é `degraded` e não é
-alvo de suporte. O contrato é pequeno para permitir evolução sem mudar o core;
-isso não constitui promessa de compatibilidade V1.
+O MVP usa OpenCode 2.x/V2. O adaptador é único e V2-first. Referências a V1
+neste contrato e nos comentários do adaptador são **históricas**: documentam
+medições e caminhos de diagnóstico já realizados, não um alvo de suporte nem
+uma promessa de compatibilidade.
+
+Um binário V1 ainda pode ser detectado para diagnóstico; ele é reportado como
+`degraded`. Se expuser `--dir`, o adaptador mantém um caminho legado de execução
+para esse diagnóstico, mas V1 não é alvo suportado nem validado. O contrato é
+pequeno para permitir evolução sem mudar o core.
 
 Permissões do OpenCode V2 (`permissions[]` allow/ask/deny) são barreira
 adicional de execução; não substituem gates, evidências nem aprovação do core.

@@ -7,10 +7,10 @@ promessas de recursos futuros. Lacunas planejadas estão mapeadas em
 
 ## Versão
 
-- Kit: **4.0.0** (core Python + kit Markdown 3.x preservado)
+- Kit: **4.0.0** (core Python + kit Markdown alinhado ao fluxo 4.0)
 - Harness alvo único: **OpenCode 2.x/V2** — versão medida no ambiente:
   **opencode v2.1.4** (`~/.opencode/bin/opencode`)
-- Data desta avaliação: 2026-11-10
+- Data desta avaliação: 2026-11-12
 
 ## Alvo e evidência
 
@@ -18,6 +18,8 @@ O MVP usa **OpenCode 2.0/V2** (decisão D5 revisada). A tabela abaixo separa
 capacidade **medida** (probe ou smoke com o binário 2.1.4) de lacuna
 planejada. O binário V1 1.19.4 ainda presente no registry do Zed não é alvo do
 MVP; `discover` o marca como `degraded` se for o único encontrado.
+Documentação de agentes/comandos é **orientativa**: não substitui nem amplia os
+gates, evidências e aprovação aplicados pelo core.
 
 | Capacidade | Status | Como foi validado |
 | --- | --- | --- |
@@ -33,7 +35,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
 | Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
 | Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 319 testes padrão + smoke |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 337 testes padrão + smoke |
 | Importação unidirecional do backlog | **supported (medida)** | `juicer/backlog.py` + `Juicer.import_backlog` valida schema/IDs/dependências/prioridades/critérios/escopo; importa uma vez em missão vazia, recusa missão com tarefas e backlog alterado, repete como `unchanged`; journal `pending`/`complete` com rollback ou retomada; `tests/test_backlog_import.py` |
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
 | Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
@@ -57,7 +59,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Branch tip deve coincidir com o commit evidenciado no merge | **supported (medida)** | `branch_tip == result.commit`; branch movida bloqueia integração |
 | Aprovação humana separada do gate técnico | **supported (medida)** | `juicer approve` grava registro aprovador/task/commit/tree/data/nota; `--approve` sem registro é recusado; novo commit invalida; não altera gates técnicos; alto risco exige aprovação; `tests/test_approval.py` |
 | Critérios de aceitação verificados pelo core | **supported (medida)** | `check:<id>`, `review`, `security`, `human`; evidência vinculada a commit/tree; auditoria por critério; `tests/test_criteria.py` |
-| Revisão e segurança obrigatórias no core | **supported (medida)** | `required_gates` + artefatos estruturados + gate; `tests/test_integrate.py`, `tests/test_evidence.py` |
+| Revisão e segurança como gates quando exigidos pela política | **supported (medida)** | `required_gates` + artefatos estruturados + gate; o core não adiciona gates implícitos; alto risco exige aprovação humana e segurança só é gate se declarada; `tests/test_integrate.py`, `tests/test_evidence.py` |
 | Acionamento de `@reviewer`/`@security` pelo core | **supported (medido: review-run)** | `review-run` executou o `@reviewer` real (V2.1.4) e retornou JSON estrito; NDJSON capturado reproduzido até `done`. `security-run`: mesmo caminho de código, coberto por testes (chamada ao vivo bloqueada por quota do provider) |
 | Fail-fast de severidade/estrutura das evidências | **supported (medida)** | `validate_findings` rejeita severidade/descrição inválidas antes de gravar |
 | `--dir` na CLI V2 | **ausente (medida)** | `run --help` 2.1.4 não tem `--dir`; isolamento via CWD |
@@ -66,6 +68,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 | Deploy/release (A16–A18) | **fora do MVP** | conforme escopo aprovado |
 | Segundo harness, coordenação distribuída | **fora do MVP** | conforme escopo aprovado |
 | Compatibilidade V1 como alvo | **não prometida** | D5/D9; V1 degradado se detectado |
+| Alinhamento de agentes, comandos e documentação ao alvo V2 | **supported (documental)** | `AGENTS.md`, README, STATUS e `docs/HARNESS_CONTRACT.md` declaram a ordem canônica, a separação backlog/`.juicer` e medida × lacuna; `@reviewer`/`@security` são read-only e não substituem gates; `tests/test_docs_alignment.py` |
 
 ## Limitações ambientais
 
@@ -100,7 +103,7 @@ MVP; `discover` o marca como `degraded` se for o único encontrado.
 ```
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
-uv tool run pytest -q tests/                     # 319 passed (2026-11-11)
+uv tool run pytest -q tests/                     # 337 passed (2026-11-12)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário
 # v2.1.4 e devolveu JSON estrito; o NDJSON real foi reproduzido no caminho de
 # evidência (artefato PASS -> critérios -> done). Nova chamada ao vivo: HTTP

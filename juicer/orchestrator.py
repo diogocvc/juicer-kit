@@ -1585,9 +1585,11 @@ class Juicer:
                                 tree_hash: Optional[str]) -> tuple:
         """Evaluate the security gate for a task/commit.
 
-        Returns (status, details). If security is not required (not high risk
-        and not declared), returns PASS. Missing/malformed artifact ->
-        BLOCKED; stale artifact (different commit/tree) -> NOT RUN.
+        Returns (status, details). The integrate loop calls this only when
+        ``security`` is in ``required_gates``; the core does not add the gate
+        implicitly, even for high-risk tasks (high risk forces human approval).
+        If called, high risk also requires an artifact. Missing/malformed
+        artifact -> BLOCKED; stale artifact (different commit/tree) -> NOT RUN.
         """
         policy = task.get("approval_policy") or {}
         if policy.get("risk_level") != "high" and "security" not in (

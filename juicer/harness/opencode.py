@@ -14,8 +14,9 @@ V2 notes (measured on 2.1.4):
   carry assistant-visible text).
 * ``--auto`` exists but is never added by default.
 
-A V1 binary may still be discovered for diagnostics; it is not the MVP target
-and ``discover`` reports ``v2: false`` for it.
+V1 references in this module are historical. A V1 binary may still be
+discovered for diagnostics; it is not the MVP target and ``discover`` reports
+``v2: false`` for it.
 """
 
 from __future__ import annotations
@@ -223,7 +224,8 @@ def build_command(binary: str, message: str, agent: Optional[str] = None,
         # Private server keeps concurrent worktree runs from sharing sessions.
         cmd += ["--standalone"]
     if run_dir:
-        # V1 only: V2 has no --dir; callers pin the workspace via process CWD.
+        # Historical V1 only: V2 has no --dir; callers pin the workspace via
+        # process CWD.
         # Passing the flag when the binary does not support it would fail, so
         # only include it when the caller explicitly requests a dir pin and
         # the binary is expected to accept it.
@@ -235,8 +237,8 @@ def build_command(binary: str, message: str, agent: Optional[str] = None,
 def parse_run_output(text: str) -> dict:
     """Extract session id and assistant-visible text from JSON event stream.
 
-    Supports V2 events (``part`` at top level) and the older V1 message/parts
-    shape still seen in fixtures.
+    Supports V2 events (``part`` at top level). The legacy V1 message/parts
+    shape is retained only for historical fixtures, not as a supported target.
     """
     session_id = None
     texts = []
@@ -307,7 +309,7 @@ def run(request: ExecutionRequest, binary: Optional[str] = None) -> ExecutionRes
         required.append("agent_flag")
     if request.session_id:
         required.append("session_flag")
-    # V1 needs --dir to pin worktrees; V2 pins via process CWD instead.
+    # Historical V1 needs --dir to pin worktrees; V2 pins via process CWD.
     if not is_v2:
         required.append("dir_flag")
     missing = [name for name in required if not caps.get(name)]

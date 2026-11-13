@@ -680,8 +680,8 @@ Starting Task: TASK-001 JWT Authentication
 2. @architect → Design JWT auth system
 3. @planner → Break down into tasks
 4. @coder → Implement
-5. @reviewer → Review
-6. @tester → Test
+5. @tester → Test
+6. @reviewer → Review
 7. @security → Security audit
 8. @documenter → Document
 
@@ -1132,8 +1132,7 @@ The validation query was not checking the `expiresAt` field.
 **Function**: Code reviewer. Quality, best practices, issue identification.
 
 **When to use**:
-- After any code change (**mandatory**).
-- Before merge.
+- After deterministic checks and before merge (**mandatory**).
 
 **Example**:
 
@@ -1175,7 +1174,7 @@ Overall good implementation with proper error handling and tests.
 **Function**: Test engineer. Creates and runs unit, integration, E2E tests.
 
 **When to use**:
-- After implementation and review (**mandatory**).
+- After implementation and before review (**mandatory**).
 - To ensure test coverage.
 
 **Example**:
@@ -1276,7 +1275,8 @@ Database connection pool is exhausted under high load, causing stale reads.
 **Function**: Security auditor. OWASP, sensitive data, authentication.
 
 **When to use**:
-- Features with auth, user data, secrets, external APIs (**mandatory**).
+- Features with auth, user data, secrets, external APIs, after review and
+  before merge (**mandatory when risk applies**).
 - Before production deployment.
 
 **Example**:
@@ -1771,8 +1771,8 @@ Let's see complete flows from start to finish.
 3. @architect → Design JWT architecture
 4. @planner → Break down into tasks
 5. @coder → Implement task 1
-6. @reviewer → Review
-7. @tester → Test
+6. @tester → Test
+7. @reviewer → Review
 8. @security → Security audit
 9. @documenter → Document
 ```
@@ -1806,8 +1806,8 @@ You: Execute now.
 1. @finder → Map auth code
 2. @debugger → Investigate root cause
 3. @fixer → Fix bug
-4. @reviewer → Review
-5. @tester → Test
+4. @tester → Test
+5. @reviewer → Review
 ```
 
 **With orchestrator**:
@@ -1821,9 +1821,9 @@ You: Execute now.
 
 @fixer: [Fixes]
 
-@reviewer: [Reviews]
-
 @tester: [Tests]
+
+@reviewer: [Reviews]
 ```
 
 ---
@@ -1838,8 +1838,8 @@ You: Execute now.
 1. @finder → Map code
 2. @analyst → Analyze current structure
 3. @refactorer → Refactor
-4. @reviewer → Review
-5. @tester → Test
+4. @tester → Test
+5. @reviewer → Review
 ```
 
 ---
@@ -1851,8 +1851,8 @@ You: Execute now.
 **Flow**:
 
 ```
-1. @security → Audit vulnerabilities
-2. @reviewer → Review code
+1. @reviewer → Review code
+2. @security → Audit vulnerabilities
 3. @fixer → Fix critical issues
 4. @security → Re-audit
 ```
@@ -1877,11 +1877,11 @@ It manages the flow automatically.
 
 This allows prioritization and planning.
 
-### 3. Always review and test before merge
+### 3. Always test and review before merge
 
 ```
-@reviewer Review the changes.
 @tester Run tests.
+@reviewer Review the changes.
 ```
 
 Don't skip these steps.
@@ -2050,9 +2050,9 @@ You: @fixer Fix the database connection pool issue.
 
 @fixer: [Fixes]
 
-@reviewer: [Reviews]
-
 @tester: [Tests]
+
+@reviewer: [Reviews]
 ```
 
 ### Example 3: Security Review
