@@ -4,28 +4,44 @@ description: "Create or update technical documentation (README, API docs, guides
 
 # Command: /document
 
-When invoked, create or update documentation for the current code.
+**Core integration.** Documentation is not a core gate. This command may run
+manually at any point; when a task declares documentation as an acceptance
+criterion, the core still validates the underlying behavior and checks. Do not
+document behavior that is not implemented or verified.
 
 ## Steps
 
-1. **Understand the Feature**
-   - Read the code and changes made.
-   - Identify the purpose and usage.
+1. **Understand the feature**
+   - Read the code and the accepted change set.
+   - Identify the audience (developer, operator, end user) and the task.
 
-2. **Choose Documentation Type**
-   - README: Setup, usage, examples.
-   - API Docs: Endpoints, schemas, examples.
-   - Guides: Tutorials, how-tos.
+2. **Confirm scope**
+   - Write only inside `scope.paths` (normally `docs/`, `README.md` or
+     docstrings in changed files).
+   - If a doc lives outside scope, report `BLOCKED` instead of editing it.
 
-3. **Write Documentation**
-   - Use clear, concise language.
-   - Include examples and code snippets.
-   - Follow project documentation style.
+3. **Choose documentation type**
+   - README: setup, usage, examples.
+   - API reference: endpoints, schemas, errors, auth, versioning.
+   - Guide: task-oriented tutorial or how-to.
+   - ADR/decision log: context and consequences.
 
-4. **Update Related Docs**
-   - Update README if new features are added.
-   - Update API docs if endpoints change.
-   - Update guides if workflows change.
+4. **Write documentation**
+   - Lead with the user outcome; keep examples runnable.
+   - Follow the project's existing style and terminology.
+   - State versions, prerequisites and limitations.
+   - Add migration notes for user-visible changes.
+
+5. **Verify accuracy**
+   - Every command and code sample must match the current code.
+   - Do not invent flags, responses or defaults.
+   - If behavior is ambiguous or unverified, mark it `UNKNOWN` and ask.
+
+6. **Update related docs**
+   - README for new features.
+   - API docs for endpoint/schema changes.
+   - Guides for changed workflows.
+   - Changelog for user-visible changes.
 
 ## Output Format
 
@@ -38,18 +54,25 @@ When invoked, create or update documentation for the current code.
 - `docs/guides/feature.md` — [Tutorial or guide]
 
 ### Key Sections
-- **Overview**: [What it does]
-- **Setup**: [How to configure]
-- **Usage**: [How to use]
-- **Examples**: [Code snippets]
+- Overview:
+- Setup:
+- Usage:
+- Examples:
+- Limitations:
+
+### Verification
+- Commands/examples checked against:
+- Behavior not verified / UNKNOWN:
 
 ### Notes
-- [Any follow-up documentation needed]
+- [Follow-up documentation needed]
 ```
 
 ## Rules
 
-- Write for the target audience (developers, end-users).
-- Include examples and code snippets.
-- Keep documentation up-to-date with code.
+- Write for the target audience.
+- Include runnable examples and code snippets.
+- Keep documentation consistent with the current code.
+- Never document unverified behavior as fact.
+- Never leave `scope.paths` without reporting `BLOCKED`.
 - Use clear, simple language.

@@ -1,5 +1,48 @@
 # Changelog
 
+## 4.1.0 — 2026-11-14
+
+Refatoração completa do kit Markdown (18 agentes, 9 comandos, 6 skills) para o
+modelo de atividades do Documento Estrutural v2.0. O core Python não muda de
+comportamento; a autoridade sobre escopo, checks, evidência e gates continua no
+`juicer`.
+
+### Alterado
+
+- Agentes definidos por **capacidade/atividade**, não por persona. Removidas as
+  cadeias rígidas do `@orchestrator`; a seleção de capacidades parte do task
+  contract e do que é realmente desconhecido.
+- `scope.paths` explícito em todos os agentes de escrita: sair do escopo exige
+  parar e reportar `BLOCKED`.
+- Tratamento de incerteza padronizado (`UNKNOWN`, `Open Question`, `BLOCKED`) e
+  proibição de inventar requisitos, dependências, causas ou comportamento.
+- Evidência em vez de prosa: `reviewer`, `security`, `tester`, `devops` e
+  `debugger` emitem bloco JSON de atividade; nenhum agente declara
+  `PASS`/`FAIL` — o core roda `task.checks`.
+- `architect` e `planner` passam a `edit: deny`; `planner` emite JSON
+  compatível com `juicer decompose` (INVEST + Critical Path Method).
+- `devops` e `debugger` perdem shell genérico; usam allowlist de inspeção e
+  validação. O `debugger` não adiciona logging com `edit: deny` — pede
+  instrumentação e reporta `BLOCKED`.
+- Frontmatter migrado para `permissions` V2 (allow/deny/ask) como teto mínimo de
+  privilégio; permissões efetivas vêm do task contract e dos gates do core.
+- Comandos: `/start` e `/plan` delegam ao core/seleção de capacidades;
+  `/add-backlog` e `/edit-backlog` validam critérios e ciclos; `/review`,
+  `/security-audit` e `/test` apontam para a integração via `juicer`.
+- Skills viram fonte única de verdade: `code-review-checklist` (Google
+  Engineering Practices), `security-review` (OWASP Top 10 2021 completo),
+  `api-design` (versionamento), `tdd-workflow` (legacy code),
+  `context-management` (handoffs por artefato, Seção 16) e `prd-template`
+  (requisitos técnicos de alto nível). `reviewer` e `security` não repetem mais
+  os checklists inline; apontam para a skill e mantêm apenas o contrato JSON de
+  evidência validado pelo core.
+- `commenter` e `documenter` deixam de fixar `model` no frontmatter: o modelo é
+  escolhido pela tarefa/sessão, não pela persona do agente.
+- `docs/GUIDE.md` substitui pipelines rígidos por **seleção de capacidades**,
+  descreve os agentes como atividades e registra a mudança do modelo 4.1.0.
+- `tests/test_docs_alignment.py` atualizado para os novos invariantes (27
+  contratos). Suíte: **354 passed**.
+
 ## 4.0.0 — 2026-11-13
 
 Primeira versão com core executável, fiel ao modelo aprovado no documento

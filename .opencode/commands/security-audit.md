@@ -1,60 +1,95 @@
 ---
-description: "Audit code for security vulnerabilities (OWASP, auth, PII, secrets)."
+description: "Audit code for security vulnerabilities (OWASP Top 10 2021, auth, PII, secrets)."
 agent: security
 ---
 
 # Command: /security-audit
 
-When invoked, perform a security audit using the `security-review` skill.
+**Core integration.** Use `juicer security-run TASK-XXX` (or
+`juicer security TASK-XXX --commit <hash> --tree-hash <hash>`) for automated
+evidence recorded against the task commit/tree. This command is the **manual**
+equivalent for work outside the core; only the structured JSON block is
+accepted as core evidence.
+
+When invoked, perform a security audit using the `security-review` skill. It is
+the single source of truth for the OWASP Top 10 2021 checklist, severity
+rubric and evidence contract; do not restate it from memory.
 
 ## Steps
 
-1. **Identify Sensitive Areas**
+1. **Identify sensitive areas**
    - Authentication/authorization code.
-   - Data handling (PII, encryption).
-   - External API integrations.
-   - Secret management.
+   - Data handling (PII, encryption, retention).
+   - External API and outbound-request integrations.
+   - Secret management and CI/CD trust boundaries.
+   - New or changed dependencies.
 
-2. **Review for Vulnerabilities**
+2. **Review for vulnerabilities**
    - Use the `security-review` skill checklist.
-   - Check for OWASP Top 10 issues.
+   - Cover all OWASP Top 10 2021 categories (A01–A10).
+   - Reference ASVS/NIST where a control needs a precise criterion.
 
-3. **Document Findings**
-   - List vulnerabilities by severity.
-   - Reference OWASP when applicable.
+3. **Confirm scope and evidence**
+   - Audit only `scope.paths`; report `UNKNOWN` when a control depends on code
+     outside scope.
+   - Confirm the commit/tree and that the review gate ran.
 
-4. **Give a Verdict**
+4. **Document findings**
+   - List vulnerabilities by severity with `file:line`, exploit path and
+     required control.
+   - Reference the OWASP category.
+
+5. **Give a verdict**
    - Approve, approve with recommendations, or require changes.
+   - Never approve with a critical finding.
 
 ## Output Format
 
 ```
 ## Security Audit: [Module or Feature]
 
-### 🔴 Critical Issues
-- [file:line] — [Issue and OWASP reference]
-- [file:line] — [Issue and OWASP reference]
+### Scope and Evidence
+- Commit/tree:
+- Files reviewed:
+- Data classification / trust boundaries:
+- Review gate: [declared? evidence?]
 
-### 🟡 Medium Issues
-- [file:line] — [Issue and explanation]
+### Critical Issues
+- [file:line] — [OWASP ID, exploit path and required control]
 
-### 🟢 Recommendations
-- [Security improvement suggestion]
+### High / Medium Issues
+- [file:line] — [OWASP ID and impact]
 
-### Compliance
-- [ ] OWASP Top 10 addressed
-- [ ] PII protection verified
-- [ ] Secrets management secure
+### Recommendations
+- [Hardening or defense-in-depth suggestion]
+
+### OWASP Top 10 2021 Coverage
+- [ ] A01 Broken Access Control
+- [ ] A02 Cryptographic Failures
+- [ ] A03 Injection
+- [ ] A04 Insecure Design
+- [ ] A05 Security Misconfiguration
+- [ ] A06 Vulnerable and Outdated Components
+- [ ] A07 Identification and Authentication Failures
+- [ ] A08 Software and Data Integrity Failures
+- [ ] A09 Security Logging and Monitoring Failures
+- [ ] A10 Server-Side Request Forgery (SSRF)
+
+### UNKNOWN / Open Questions
+- [Control that could not be verified and the evidence needed]
 
 ## Verdict
 - [ ] Approved (no critical issues)
 - [ ] Approved with recommendations
-- [ ] Changes required (critical issues found)
+- [ ] Changes required (critical/high issues found)
 ```
 
 ## Rules
 
 - Never approve code with critical vulnerabilities.
-- Reference OWASP Top 10 when applicable.
-- Be thorough — security is not optional.
-- If unsure, flag it and ask for clarification.
+- Reference OWASP Top 10 2021 explicitly.
+- Never substitute for `/review`; both run when risk applies.
+- Never edit files; report findings.
+- If unsure, report `UNKNOWN` or `BLOCKED`; never guess.
+- For core evidence, emit exactly one fenced `json` block with
+  `{"verdict": "...", "findings": [...], "summary": "..."}`.

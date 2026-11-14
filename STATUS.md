@@ -1,4 +1,4 @@
-# STATUS — Juicer Kit 4.0.0
+# STATUS — Juicer Kit 4.1.0
 
 Estado real da implementação, capacidades validadas e limitações. Este
 documento descreve apenas o que foi implementado e executado; não contém
@@ -7,12 +7,30 @@ promessas de recursos futuros. Lacunas planejadas estão mapeadas em
 
 ## Versão
 
-- Kit: **4.0.0** (core Python + kit Markdown alinhado ao fluxo 4.0)
+- Kit: **4.1.0** (core Python 4.0 + kit Markdown refatorado para atividades)
 - Harness alvo único: **OpenCode 2.x/V2** — versão medida no ambiente:
   **opencode v2.2.7** (`~/.opencode/bin/opencode`)
 - Medição anterior registrada: `opencode v2.1.4` (mantida como histórico em
   STATUS/contrato).
-- Data desta avaliação: 2026-11-12
+- Data desta avaliação: 2026-11-14
+
+## Kit 4.1.0 — refatoração de atividades
+
+- 18 agentes, 9 comandos e 6 skills alinhados ao Documento Estrutural v2.0:
+  atividade em vez de persona, evidência JSON em vez de prosa, `scope.paths`
+  explícito e `UNKNOWN`/`Open Question`/`BLOCKED` para incerteza.
+- `reviewer`, `security`, `tester`, `devops` e `debugger` não atestam resultados:
+  o core executa `task.checks` e grava `PASS/FAIL/BLOCKED/NOT RUN`.
+- `architect` e `planner` são read-only (`edit: deny`); `devops` e `debugger`
+  não têm shell genérico e usam apenas comandos de inspeção listados.
+- Permissões de frontmatter são teto mínimo de privilégio (V2 `permissions`);
+  o task contract concede o conjunto efetivo e o core continua sendo a
+  autoridade de escopo, evidência e gates.
+- `orchestrator` e `/start` delegam ao core (`juicer run`, `juicer integrate`);
+  os pipelines rígidos foram substituídos por seleção de capacidades.
+- Evidência: `uv tool run pytest tests/ -q --ignore=tests/test_opencode_smoke.py`
+  → **354 passed** (2026-11-14), incluindo 27 contratos de alinhamento em
+  `tests/test_docs_alignment.py`.
 
 ## Alvo e evidência
 
@@ -38,7 +56,7 @@ gates, evidências e aprovação aplicados pelo core.
 | Permissões estruturadas V2 no config | **documental** | docs V2 (allow/ask/deny); política restritiva headless não medida |
 | Isolamento por branch/worktree git | **supported** | git CLI do core (worktree nativo V2 não usado) |
 | Paralelismo local real (2 tarefas) | **supported (histórico V1)** | smoke anterior com `--jobs 2`; revalidar com V2 standalone |
-| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 345 testes padrão + checks opt-in de V2 |
+| Checks determinísticos PASS/FAIL/BLOCKED/NOT RUN | **supported** | 354 testes padrão + checks opt-in de V2 |
 | Importação unidirecional do backlog | **supported (medida)** | `juicer/backlog.py` + `Juicer.import_backlog` valida schema/IDs/dependências/prioridades/critérios/escopo; importa uma vez em missão vazia, recusa missão com tarefas e backlog alterado, repete como `unchanged`; journal `pending`/`complete` com rollback ou retomada; `tests/test_backlog_import.py` |
 | Gate técnico bloqueia NOT RUN/FAIL/BLOCKED | **supported** | `tests/test_gates.py` |
 | Merge explícito + conflito detectado | **supported** | `tests/test_preservation.py` |
@@ -124,7 +142,7 @@ gates, evidências e aprovação aplicados pelo core.
 export PATH="$HOME/.opencode/bin:$PATH"
 python3 -m compileall juicer bin/juicer          # OK
 uv tool run pytest -q tests/ --ignore=tests/test_opencode_smoke.py
-                                                 # 345 passed (2026-11-12)
+                                                 # 354 passed (2026-11-14)
 JUICER_OPENCODE_SMOKE=1 uv tool run pytest -q tests/test_opencode_smoke.py -k capabilities
                                                  # 1 passed (V2 real, sem modelo)
 # smoke real V2 de review-run (2026-10-29): @reviewer executou no binário

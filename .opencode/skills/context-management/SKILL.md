@@ -1,83 +1,155 @@
 ---
 name: context-management
-description: Use this skill to optimize token usage and manage context efficiently.
+description: Use this skill to optimize token usage, manage context efficiently, and hand off work between agents using artifact references.
 ---
 
 # Skill: Context Management
 
-Use this skill to optimize token usage and manage context efficiently.
+Use this skill to keep context small, accurate and portable. It covers
+pruning, summarization, selective loading and — following Section 16 of the
+Structural Document — **handoffs by artifact reference**, not by replaying
+conversations.
+
+## Context Tiers
+
+Load in this order; stop as soon as the question is answered:
+
+1. **Task contract** — id, description, acceptance criteria, `scope.paths`,
+   `task.checks`, gates. This is always in scope.
+2. **Artifacts** — maps, diagnoses, designs, plans, review/security evidence.
+   Reference by path and commit/tree; do not paste them.
+3. **Repository slice** — only the files named by the map or needed to verify a
+   claim.
+4. **Full repository** — almost never; use `@finder` first.
 
 ## Strategies
 
-### 1. Context Pruning
+### 1. Context pruning
 
-- Remove irrelevant files from context.
-- Keep only:
-  - Files related to current task.
-  - Core architecture docs.
-  - Active conversation history.
+- Remove files unrelated to the current activity.
+- Keep the task contract, active decisions and evidence references.
+- Drop completed sub-task transcripts once their artifact exists.
 
 ### 2. Summarization
 
-- When session exceeds ~50 messages, use `/compact` to summarize.
-- Keep:
-  - Key decisions.
-  - Action items.
-  - Important context.
-- Discard:
-  - Redundant explanations.
-  - Intermediate reasoning.
-  - Completed sub-tasks.
+- When a session grows long, compact it (see `/compact` below).
+- Keep decisions, open questions, action items and evidence links.
+- Discard intermediate reasoning and repeated explanations.
 
-### 3. Selective Loading
+### 3. Selective loading
 
-- Use @finder to load only necessary files.
-- Do not load entire codebase unless required.
-- For large files, load specific sections (use line ranges if supported).
+- Use `@finder` for a location map before reading files.
+- Read specific sections (line ranges) for large files.
+- Grep for the symbol or error string instead of loading a whole tree.
 
-### 4. Cache Context
+### 4. Reference, do not repeat
 
-- Store frequently-used context in `docs/context/`.
-- Reference cached context instead of re-explaining.
-- Update cache when architecture changes.
+- Point to artifacts: `docs/...`, `backlog/...`, `.juicer/evidence/...`,
+  `path:line`, commit/tree.
+- Do not restate a plan or decision that already has a canonical artifact.
+- If an artifact is stale, say so and name the newer commit/tree.
 
-### 5. Avoid Bloat
+### 5. Avoid bloat
 
-- Do not repeat information already in backlog or docs.
-- Use references: "See `backlog/backlog.md#TASK-XXX`".
-- Keep explanations concise.
+- Do not paste whole conversations into a handoff.
+- Do not include secrets, tokens or personal data.
+- Do not carry speculation as context; convert it to an Open Question.
 
-## Commands
+## Handoffs (Structural Document, Section 16)
 
-### `/compact`
+A handoff transfers **state**, not conversation. The receiving activity must be
+able to continue from the handoff alone, without the sender's history.
 
-Summarize the current session:
+### Principles
+
+- **Artifact-first** — link to files, commits, evidence and task ids.
+- **Bounded** — one screen: objective, decisions, evidence, open questions,
+  next action.
+- **Scoped** — state `scope.paths` and what was explicitly not touched.
+- **Fresh** — include the commit/tree; flag anything older.
+- **Honest** — separate facts, claims and unknowns; `UNKNOWN` is allowed.
+- **Safe** — no secrets, credentials, PII or raw logs with sensitive data.
+- **Idempotent** — the receiver can re-read the artifacts and reach the same
+  state.
+
+### Handoff packet
+
+```json
+{
+  "handoff_id": "HANDOFF-TASK-001-002",
+  "from_activity": "diagnosis",
+  "to_activity": "bugfix",
+  "task_id": "TASK-001",
+  "commit": "abc1234",
+  "tree_hash": "def5678",
+  "objective": "Remove the confirmed null-dereference in the invoice parser.",
+  "scope": {"paths": ["src/billing/"], "constraints": ["no API changes"]},
+  "artifacts": [
+    {"kind": "diagnosis", "path": ".juicer/evidence/diagnosis-TASK-001.json", "commit": "abc1234"},
+    {"kind": "failing_test", "path": "tests/billing/test_invoice.py::test_null_customer", "commit": "abc1234"}
+  ],
+  "decisions": [
+    {"decision": "Fix at the parser boundary", "reason": "All callers pass raw input"}
+  ],
+  "evidence": [
+    {"claim": "Null customer reaches line 42", "source": "trace + test output"}
+  ],
+  "open_questions": [
+    {"question": "Should a missing customer be rejected or defaulted?", "owner": "human"}
+  ],
+  "next_action": "Add the regression test, then apply the minimal fix.",
+  "do_not_redo": ["root-cause investigation", "reproduction"],
+  "blockers": []
+}
+```
+
+### Handoff rules
+
+- The receiver **consumes** the handoff; it does not repeat completed work
+  listed in `do_not_redo` unless it finds a concrete contradiction.
+- If the commit/tree differs from the current workspace, treat the handoff as
+  stale and report it before acting.
+- If an artifact is missing or unreadable, report `BLOCKED`; do not reconstruct
+  it from memory.
+- Keep the handoff in the repository (or `.juicer/evidence/`) when it must
+  survive the session; chat-only handoffs are not durable.
+
+### What not to hand off
+
+- The full conversation or intermediate reasoning.
+- Secrets, tokens, `.env` contents or PII.
+- Unverified claims presented as facts.
+- A scope broader than the task contract.
+
+## `/compact` Summary Template
 
 ```
 ## Session Summary
 
-### Decisions Made
-- [Decision 1]
-- [Decision 2]
+### Objective
+[One sentence]
 
-### Action Items
-- [ ] Action 1
-- [ ] Action 2
+### Decisions
+- [Decision, reason, artifact/commit]
 
-### Key Context
-- [Important context to retain]
+### Evidence
+- [Artifact path, commit/tree, what it proves]
 
-### Completed Tasks
-- [TASK-XXX] [Title]
-- [TASK-YYY] [Title]
+### Scope Touched
+- [paths]
 
-### In Progress
-- [TASK-ZZZ] [Title] — [Current step]
+### Open Questions
+- [Question, owner, why it matters]
+
+### Next Action
+- [Single next step]
 ```
 
 ## Rules
 
-- Always prune context before it gets too large.
-- Summarize proactively, not reactively.
-- Never lose critical decisions or action items.
-- Document assumptions explicitly.
+- Prune before the context becomes unmanageable; summarize proactively.
+- Never lose a decision, an open question or an evidence link.
+- Never paste a transcript when an artifact reference will do.
+- Never include secrets or PII in context or handoffs.
+- Mark assumptions explicitly; `UNKNOWN` is better than a confident guess.
+- The core state in `.juicer/` is canonical; do not recreate it in prose.

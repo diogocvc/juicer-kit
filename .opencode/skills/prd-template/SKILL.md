@@ -1,11 +1,19 @@
 ---
 name: prd-template
-description: Use this skill when creating a Product Requirements Document (PRD) for a new feature or product.
+description: Use this skill when creating a Product Requirements Document (PRD) for a new feature or product. Technical requirements stay high-level; detailed design belongs to the architecture activity.
 ---
 
 # Skill: PRD Template
 
-Use this skill when creating a Product Requirements Document (PRD) for a new feature or product.
+Use this skill when creating a Product Requirements Document. A PRD states the
+problem, outcome and constraints; it is **not** a design document.
+
+> **Boundary with architecture.** "Technical Requirements" in this template are
+> intentionally high-level: known constraints, integrations and non-functional
+> targets. Detailed components, interfaces, data models, API contracts and
+> trade-offs belong to the `@architect` design activity (see the `api-design`
+> skill). Do not let a PRD hard-code an implementation before the design is
+> evaluated.
 
 ## Template
 
@@ -14,89 +22,102 @@ Use this skill when creating a Product Requirements Document (PRD) for a new fea
 
 ## Overview
 
-**Problem**: [What problem are we solving?]
+**Problem**: [What problem are we solving, for whom?]
 
-**Goal**: [What is the desired outcome?]
+**Goal**: [Desired outcome in one sentence.]
 
-**Success Metrics**: [How will we measure success?]
+**Success Metrics**: [Measurable outcome, baseline and target. If unknown,
+write UNKNOWN and the question to answer.]
+
+## Context and Assumptions
+
+- **Given**: [Facts, prior decisions, links.]
+- **Assumptions**: [What must be true; how each will be validated.]
+- **Non-goals**: [What we are explicitly not solving now.]
 
 ## Scope
 
 ### In Scope
 
-- [Feature 1]
-- [Feature 2]
-- [Feature 3]
+- [Capability 1]
+- [Capability 2]
+- [Capability 3]
 
 ### Out of Scope
 
-- [What we are NOT building now]
+- [What we are NOT building now, and why]
 
-## User Stories
+## Users and Stories
 
 ### Story 1: [Title]
 
-**As a** [user type]  
-**I want** [goal]  
+**As a** [user type]
+**I want** [goal]
 **So that** [benefit]
 
 **Acceptance Criteria**:
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
+- [ ] Observable and verifiable criterion 1
+- [ ] Observable and verifiable criterion 2
 
 ### Story 2: [Title]
 
 ...
 
-## Technical Requirements
+## Technical Requirements (high level)
 
-### Architecture
+- **Constraints**: [Platform, language, compliance, latency/cost envelope.]
+- **Integrations**: [External systems and ownership; contract details are a
+  design decision.]
+- **Non-functional targets**: [Availability, performance, privacy, security.
+  Give numbers only when known.]
+- **Data**: [What data is needed, classification and retention. No schema
+  detail here.]
+- **Compatibility**: [Public APIs or formats that must keep working.]
 
-- [High-level architecture description]
-- [Components and their responsibilities]
-
-### APIs
-
-- **Endpoint**: `POST /api/resource`
-  - **Request**: [schema]
-  - **Response**: [schema]
-
-### Data Models
-
-- **Model Name**: [fields and types]
-
-### Dependencies
-
-- [External services or internal modules]
+> Detailed architecture, interfaces, schemas and API versioning are produced by
+> the `@architect` activity and recorded as ADRs/contracts. Do not duplicate
+> them here.
 
 ## Security & Compliance
 
-- [Authentication/authorization requirements]
-- [Data protection requirements (PII, encryption)]
-- [Compliance standards (GDPR, LGPD, etc.)]
+- [Authentication/authorization requirements.]
+- [Data protection (PII, encryption, retention).]
+- [Compliance standards (GDPR, LGPD, SOC 2, etc.) or UNKNOWN.]
+- [Threats and abuse cases to consider.]
 
 ## Risks & Mitigations
 
 - **Risk**: [Description]
-  - **Mitigation**: [How to reduce risk]
+  - **Likelihood / impact**:
+  - **Mitigation**:
+- **Risk**: ...
+
+## Rollout and Measurement
+
+- **Rollout**: [Flag, cohort, migration, rollback.]
+- **Instrumentation**: [Events/metrics needed to evaluate success.]
+- **Definition of done**: [Outcome, not just shipped code.]
 
 ## Timeline
 
-- **Phase 1**: [Milestone and date]
-- **Phase 2**: [Milestone and date]
-- **Phase 3**: [Milestone and date]
+- **Phase 1**: [Milestone and dependency, not a promise.]
+- **Phase 2**: [Milestone and dependency.]
 
 ## Open Questions
 
-- [Question 1]
-- [Question 2]
+- [Question, owner, why it blocks or shapes the work.]
+
+## Decision Log
+
+- [Date, decision, alternatives, link to ADR.]
 ```
 
 ## Rules
 
-- Keep the PRD concise but complete.
-- Use clear, non-technical language when possible.
-- Define success metrics upfront.
-- List open questions explicitly — do not hide uncertainties.
-- Update the PRD as requirements evolve.
+- Keep the PRD concise; link to artifacts instead of duplicating them.
+- Define success metrics upfront; mark unknown metrics explicitly.
+- List non-goals and open questions; do not hide uncertainty.
+- Technical requirements stay at the constraint level; detailed design is a
+  separate activity.
+- Acceptance criteria must be observable and verifiable.
+- Update the PRD when requirements change; record the decision.

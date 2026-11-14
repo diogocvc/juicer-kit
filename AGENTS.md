@@ -1,12 +1,17 @@
 # Project Instructions
 
-Juicer Kit 4.0.0 — Markdown kit (agents, commands, skills) plus the Python
+Juicer Kit 4.1.0 — Markdown kit (agents, commands, skills) plus the Python
 orchestration core (`juicer/` + `bin/juicer`).
 
 **Target harness**: OpenCode 2.x/V2. The environment-measured version is
 `opencode v2.2.7` (`~/.opencode/bin/opencode`). A V1 binary may be detected for
 diagnostics, but it is `degraded` and is not a compatibility promise. See
 `STATUS.md` for measured capabilities versus planned gaps.
+
+**Kit model (4.1.0)**: agents are activity-oriented capabilities, not personas.
+They receive `scope.paths` from the task contract, stop and report `BLOCKED`
+when they cannot stay inside it, and never self-attest tests or gates — the core
+runs `task.checks` and owns `PASS`/`FAIL`/`BLOCKED`/`NOT RUN`.
 
 ## Where things live
 

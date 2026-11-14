@@ -7,6 +7,7 @@ the core. They do not execute agents or the OpenCode binary.
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from pathlib import Path
 
@@ -81,19 +82,41 @@ def scalar(relative: str, key: str) -> str:
     raise AssertionError("%s missing frontmatter key %s" % (relative, key))
 
 
-def permissions(relative: str) -> dict[str, str]:
-    result: dict[str, str] = {}
+def permission_rules(relative: str) -> list[dict[str, str]]:
+    """Parse the V2 ``permissions`` list from an agent frontmatter."""
+    rules: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
     in_permissions = False
     for line in frontmatter(relative).splitlines():
-        if line.rstrip() == "permission:":
+        if line.rstrip() == "permissions:":
             in_permissions = True
             continue
-        if in_permissions:
-            if not line.startswith(" "):
-                in_permissions = False
-                continue
-            key, _, value = line.strip().partition(":")
-            result[key.strip()] = value.strip()
+        if not in_permissions:
+            continue
+        if not line.startswith(" "):
+            break
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            if current:
+                rules.append(current)
+            current = {}
+            key, _, value = stripped[2:].partition(":")
+            current[key.strip()] = value.strip().strip('"')
+        elif current is not None and ":" in stripped:
+            key, _, value = stripped.partition(":")
+            current[key.strip()] = value.strip().strip('"')
+    if current:
+        rules.append(current)
+    return rules
+
+
+def effective(relative: str, action: str, resource: str = "*") -> str:
+    """Last matching rule wins; no match defaults to ``ask``."""
+    result = "ask"
+    for rule in permission_rules(relative):
+        if (fnmatch.fnmatchcase(action, rule.get("action", ""))
+                and fnmatch.fnmatchcase(resource, rule.get("resource", ""))):
+            result = rule.get("effect", "ask")
     return result
 
 
@@ -111,7 +134,7 @@ def assert_canonical_order(text: str, label: str) -> None:
 
 def test_agents_md_declares_version_order_and_state_ownership():
     text = read("AGENTS.md")
-    assert "4.0.0" in text
+    assert "4.1.0" in text
     assert ".juicer/" in text
     assert "backlog/" in text
     workflow = section(text, "## Canonical workflow order", "## Gates and permissions")
@@ -139,49 +162,83 @@ def test_orchestrator_follows_core_order_and_does_not_promise_extra_gates():
     assert "only after the merge" in normalized
 
 
-def test_orchestrator_pipelines_run_tests_before_review():
+def test_orchestrator_selects_capabilities_instead_of_fixed_pipelines():
     text = read(".opencode/agents/orchestrator.md")
-    pipelines = section(text, "## Pipelines", "## Token Optimization")
-    checked = 0
-    for line in pipelines.splitlines():
-        if "→" not in line or "@reviewer" not in line or "@tester" not in line:
-            continue
-        checked += 1
-        assert line.index("@tester") < line.index("@reviewer"), line
-        if "@security" in line:
-            assert line.index("@reviewer") < line.index("@security"), line
-    assert checked >= 6, "expected all documented pipelines to include tester/reviewer"
-    assert "@coder → @reviewer → @tester" not in text
+    normalized = flat(text)
+    assert "## capability selection (not fixed pipelines)" in normalized
+    assert "juicer run task-xxx" in normalized
+    assert "juicer integrate" in normalized
+    assert "## pipelines" not in normalized
+    assert "@finder → @analyst" not in text
+    assert "call `@orchestrator` to execute" not in normalized
+    for line in text.splitlines():
+        if line.strip().startswith("@") and line.count("→") >= 3:
+            raise AssertionError("rigid pipeline reintroduced: %s" % line)
 
 
 def test_reviewer_is_read_only_and_runs_before_merge():
-    perms = permissions(".opencode/agents/reviewer.md")
-    assert perms.get("read") == "allow"
-    assert perms.get("edit") == "deny"
-    assert perms.get("task") == "deny"
-    assert perms.get("bash") == "deny"
-    normalized = flat(read(".opencode/agents/reviewer.md"))
+    agent = ".opencode/agents/reviewer.md"
+    assert effective(agent, "read") == "allow"
+    assert effective(agent, "edit") == "deny"
+    assert effective(agent, "subagent") == "deny"
+    assert effective(agent, "shell") == "deny"
+    normalized = flat(read(agent))
     assert "read-only" in normalized
     assert "after deterministic checks" in normalized
     assert "before merge" in normalized
     assert "critical findings block the merge until fixed" in normalized
     assert "does not replace tests" in normalized
+    assert "code-review-checklist" in normalized
     assert '{"verdict": "pass", "findings"' in normalized
 
 
 def test_security_is_risk_triggered_and_does_not_replace_review():
-    perms = permissions(".opencode/agents/security.md")
-    assert perms.get("read") == "allow"
-    assert perms.get("edit") == "deny"
-    assert perms.get("task") == "deny"
-    assert perms.get("bash") == "deny"
-    normalized = flat(read(".opencode/agents/security.md"))
+    agent = ".opencode/agents/security.md"
+    assert effective(agent, "read") == "allow"
+    assert effective(agent, "edit") == "deny"
+    assert effective(agent, "subagent") == "deny"
+    assert effective(agent, "shell") == "deny"
+    normalized = flat(read(agent))
     assert "trigger security by **risk**" in normalized
     assert "authentication" in normalized and "secrets" in normalized
     assert "does **not** replace `@reviewer`" in normalized
     assert "review still runs" in normalized
     assert "never substitute for `@reviewer`" in normalized
+    assert "security-review" in normalized
     assert '{"verdict": "pass", "findings"' in normalized
+
+
+def test_read_only_design_and_planning_activities_cannot_edit():
+    for agent in ("architect", "planner", "reviewer", "security"):
+        relative = ".opencode/agents/%s.md" % agent
+        assert effective(relative, "edit") == "deny", relative
+
+
+def test_devops_and_debugger_have_no_blanket_shell_allow():
+    for agent in ("devops", "debugger"):
+        relative = ".opencode/agents/%s.md" % agent
+        rules = permission_rules(relative)
+        assert not any(
+            rule.get("action") == "shell"
+            and rule.get("resource") == "*"
+            and rule.get("effect") == "allow"
+            for rule in rules
+        ), relative
+        assert effective(relative, "shell", "git status --short") == "allow"
+
+
+def test_all_agents_declare_scope_and_uncertainty():
+    for path in sorted(AGENTS_DIR.glob("*.md")):
+        normalized = flat(path.read_text(encoding="utf-8"))
+        assert "scope" in normalized, path.name
+        assert "unknown" in normalized or "blocked" in normalized, path.name
+
+
+def test_agents_do_not_self_attest_test_results():
+    for path in sorted(AGENTS_DIR.glob("*.md")):
+        normalized = flat(path.read_text(encoding="utf-8"))
+        assert "- [x]" not in normalized, path.name
+        assert "tests passed" not in normalized, path.name
 
 
 def test_tester_reports_deterministic_evidence_before_review():
@@ -215,6 +272,58 @@ def test_backlog_templates_include_status():
     add_backlog = read(".opencode/commands/add-backlog.md")
     assert "**Status**: Pending" in add_backlog
     assert "**Status**: [Pending | In Progress | Blocked | Done]" in read("backlog/backlog.md")
+
+
+def test_planner_emits_juicer_decompose_contract():
+    normalized = flat(read(".opencode/agents/planner.md"))
+    assert "juicer decompose" in normalized
+    assert "invest" in normalized
+    assert "critical path" in normalized
+    for token in ("acceptance_criteria", "verification", "depends_on", "scope", "checks"):
+        assert token in normalized
+
+
+def test_start_command_delegates_to_the_core():
+    normalized = flat(read(".opencode/commands/start.md"))
+    assert "juicer run task-xxx" in normalized
+    assert "juicer integrate" in normalized
+    assert "do not call `@orchestrator` directly" in normalized
+    assert "call `@orchestrator` to execute" not in normalized
+
+
+def test_skills_are_the_single_source_of_truth():
+    review = flat(read(".opencode/skills/code-review-checklist/SKILL.md"))
+    security = flat(read(".opencode/skills/security-review/SKILL.md"))
+    assert "single source of truth" in review
+    assert "google engineering practices" in review
+    assert "single source of truth" in security
+    assert "owasp top 10 2021" in security
+    for category in (
+        "a01 broken access control",
+        "a02 cryptographic failures",
+        "a03 injection",
+        "a04 insecure design",
+        "a05 security misconfiguration",
+        "a06 vulnerable and outdated components",
+        "a07 identification and authentication failures",
+        "a08 software and data integrity failures",
+        "a09 security logging and monitoring failures",
+        "a10 server-side request forgery",
+    ):
+        assert category in security
+
+    context = flat(read(".opencode/skills/context-management/SKILL.md"))
+    assert "## handoffs" in context
+    assert "section 16" in context
+    api = flat(read(".opencode/skills/api-design/SKILL.md"))
+    assert "## versioning" in api
+    assert "breaking change requires a new major version" in api
+    tdd = flat(read(".opencode/skills/tdd-workflow/SKILL.md"))
+    assert "## legacy code" in tdd
+    assert "characterization" in tdd
+    prd = flat(read(".opencode/skills/prd-template/SKILL.md"))
+    assert "@architect" in prd
+    assert "high-level" in prd
 
 
 def test_no_agents_were_added_or_removed():
@@ -259,18 +368,52 @@ def test_readme_agent_table_documents_test_before_review():
     assert "after deterministic checks and before merge" in reviewer[0].lower()
 
 
-def test_guide_pipelines_run_tests_before_review():
+def test_guide_uses_capability_selection_not_fixed_pipelines():
     text = read("docs/GUIDE.md")
-    sequence = []
+    normalized = flat(text)
+    assert "4.1.0" in text
+    assert "capability model" in normalized
+    assert "## capability selection" in normalized
+    assert "no mandatory agent chain" in normalized
+    assert "selects only the capabilities" in normalized
+    assert "simple bug" in normalized and "@fixer" in text
+    assert "@finder" in text and "@architect" in text and "@coder" in text
+    assert "follows pipeline automatically" not in normalized
+    assert "starts the agent pipeline" not in normalized
+    assert "complete development team" not in normalized
+    assert "product owner" not in normalized
+    assert "each agent is a **specialist**" not in normalized
     for line in text.splitlines():
-        match = re.match(r"\s*\d+\.\s+(@[a-z]+)\s*→", line)
-        if match:
-            sequence.append(match.group(1))
-    assert sequence.count("@reviewer") >= 4, "expected GUIDE pipelines with reviewer"
-    assert sequence.count("@tester") >= 4, "expected GUIDE pipelines with tester"
-    for before, after in zip(sequence, sequence[1:]):
-        assert not (before == "@reviewer" and after == "@tester"), sequence
-    assert "@reviewer: [Reviews]" not in text or text.index("@tester: [Tests]") < text.index("@reviewer: [Reviews]")
+        assert not re.match(r"\s*\d+\.\s+@[a-z]+\s*→", line), (
+            "rigid GUIDE pipeline reintroduced: %s" % line
+        )
+
+
+def test_agents_are_capabilities_and_do_not_pin_models():
+    for path in sorted(AGENTS_DIR.glob("*.md")):
+        normalized = flat(path.read_text(encoding="utf-8"))
+        assert "**capability.**" in normalized or "**capability**:" in normalized, path.name
+    for agent in ("commenter", "documenter"):
+        assert "model:" not in frontmatter(".opencode/agents/%s.md" % agent), agent
+        assert "the task contract grants the effective write set" in flat(
+            read(".opencode/agents/%s.md" % agent)
+        ), agent
+
+
+def test_reviewer_and_security_defer_checklists_to_skills():
+    reviewer = flat(read(".opencode/agents/reviewer.md"))
+    security = flat(read(".opencode/agents/security.md"))
+    assert "code-review-checklist" in reviewer
+    assert "single source of truth" in reviewer
+    assert "## google code review checklist" not in reviewer
+    assert "a01 broken access control" not in reviewer
+    assert '{"verdict": "pass", "findings"' in reviewer
+
+    assert "security-review" in security
+    assert "single source of truth" in security
+    assert "## owasp top 10 2021 — required coverage" not in security
+    assert "| a01 | broken access control |" not in security
+    assert '{"verdict": "pass", "findings"' in security
 
 
 def test_status_separates_measured_capability_from_planned_gap():

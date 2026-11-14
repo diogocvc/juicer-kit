@@ -2,6 +2,8 @@
 
 A specialized agent kit for OpenCode, inspired by Mission Kit and optimized for workflows with human autonomy, security, and quality.
 
+**Version 4.1.0** refactors the whole Markdown kit (18 agents, 9 commands, 6 skills) to the activity model of the Structural Document v2.0: capabilities instead of personas, explicit `scope.paths`, JSON evidence instead of self-attested prose, and `UNKNOWN`/`BLOCKED` for uncertainty. The Python core keeps the authority over checks, evidence and gates.
+
 **Version 4.0.0** adds an executable orchestration core (`juicer/` + `bin/juicer`, Python stdlib only) that drives missions through OpenCode in isolated git worktrees, with deterministic checks, explicit merge gates and checkpoint/resume. The 3.x Markdown kit (agents, commands, skills) remains usable standalone and is evolved in 4.0 to follow the core's gate order.
 
 **Target harness**: OpenCode 2.x/V2 (measured in this environment as `opencode v2.2.7`). V1 binaries may be detected for diagnostics but are `degraded`; compatibility with V1 is not promised. See [STATUS.md](STATUS.md) for measured capabilities versus planned gaps.
@@ -22,7 +24,7 @@ juicer-kit/
 ├── README.md                 # This documentation
 ├── AGENTS.md                 # Minimal project instructions for OpenCode
 ├── LICENSE
-├── VERSION                   # 4.0.0
+├── VERSION                   # 4.1.0
 ├── STATUS.md                 # Validated capabilities and limitations
 ├── bin/
 │   └── juicer                # CLI entrypoint (python3)
