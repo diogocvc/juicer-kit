@@ -1190,24 +1190,19 @@ Read `backlog/backlog.md` (pending tasks) and `backlog/in-progress.md` (tasks in
 **Response**:
 
 ```
-Starting Task: TASK-001 JWT Authentication
+Starting Task: TASK-002 Fix expired token validation
 
-**Priority**: P1-High
-**Dependencies**: None
+**Priority**: P2-Medium
+**Dependencies**: TASK-001
 **Assigned To**: [@orchestrator]
 
 **Selected capabilities**:
-- @finder → Locate auth-related files and existing patterns
-- @architect → Design the JWT auth system
-- @coder → Implement the approved design
-- @tester → Produce deterministic check evidence
-- @reviewer → Review after deterministic checks, before merge
-- @security → Audit because authentication is a risk trigger
-- @documenter → Document only if the task changes public behavior
+- @fixer → Correct the expiry comparison in src/services/TokenService.ts
+- @tester → Add the regression test that fails before and succeeds after
 
-This is a selection, not a mandatory chain. The core may drop capabilities
-that the task does not need; `@planner` is added only when decomposition is
-useful, and a small fix may need only `@fixer` plus checks.
+This is a selection, not a mandatory chain. The core runs `task.checks`; review
+and security are added only if the task declares those gates. This small fix
+does not need @finder, @architect or @planner.
 
 **Next**: @orchestrator will confirm the selection, or `juicer` will run the
 task with its declared gates.
@@ -1557,10 +1552,12 @@ contract, inside `scope.paths`.
   - should hash password
   - should reject invalid email
 
-## Verification
-- [x] Lint passed
-- [x] Type-check passed
-- [x] Tests passed
+## Handoff
+The core runs `task.checks` and records PASS/FAIL/BLOCKED/NOT RUN. This report
+is not evidence of PASS.
+
+Core evidence:
+{"activity": "implementation", "status": "COMPLETE", "files_created": ["src/models/User.ts"], "files_modified": [], "tests_added": ["tests/models/User.test.ts"], "decisions": ["bcrypt cost 12"], "not_done": [], "blockers": []}
 
 ## Notes
 - Used bcrypt for password hashing
@@ -1600,11 +1597,17 @@ breaking its public contract.
   - should allow 5 login attempts
   - should return 429 on 6th attempt
 
-## Verification
-- [x] Lint passed
-- [x] Type-check passed
-- [x] Tests passed
-- [x] No regressions detected
+## Compatibility Notes
+- Public route contract unchanged.
+- New `429` response and `Retry-After` header are observable behavior; documented
+  in the task contract.
+
+## Handoff
+The core runs `task.checks` and owns PASS/FAIL/BLOCKED/NOT RUN. This report is
+not evidence of PASS.
+
+Core evidence:
+{"activity": "compatible_change", "status": "COMPLETE", "files_modified": ["src/api/auth.ts"], "tests_added": ["tests/api/auth.test.ts"], "contract_changes": ["429 response added"], "migration_notes": [], "not_done": [], "blockers": []}
 ```
 
 ---
@@ -1638,13 +1641,13 @@ The validation query was not checking the `expiresAt` field.
 - Added `expiresAt > NOW()` check in validation query
 
 ## Regression Test
-- Created: `tests/services/TokenService.test.ts`
-- Test: should reject expired refresh tokens
+- `tests/services/TokenService.test.ts` — `should reject expired refresh tokens`
+  - **Fails before**: command and raw failure: `<attach failing run>`
+  - **Succeeds after**: same command and raw result: `<attach passing run>`
+- The core re-runs `task.checks`; this report is not evidence of PASS.
 
-## Verification
-- [x] Bug is fixed
-- [x] All tests pass
-- [x] No new issues introduced
+Core evidence:
+{"activity": "bugfix", "status": "COMPLETE", "root_cause_source": "diagnosis", "files_modified": ["src/services/TokenService.ts"], "regression_test": {"path": "tests/services/TokenService.test.ts", "fails_before": "<command and raw failure>", "succeeds_after": "<command and raw result>"}, "collateral_checks": [], "followups": [], "blockers": []}
 ```
 
 ---
@@ -1678,14 +1681,16 @@ behavior.
   - Extracted `generateTokens()` helper
   - Split register and login into separate methods
 
-## Tests
-- [x] All existing tests pass
-- [ ] New tests added: `tests/services/AuthService.test.ts`
+## Test Artifacts
+- Existing tests are expected to cover the refactor; no new tests added.
+- Any new test would be listed here by path.
 
-## Verification
-- [x] Lint passed
-- [x] Type-check passed
-- [x] All tests passed
+## Handoff
+The core runs `task.checks` and records PASS/FAIL/BLOCKED/NOT RUN. This report
+is not evidence of PASS.
+
+Core evidence:
+{"activity": "refactoring", "status": "COMPLETE", "files_modified": ["src/services/AuthService.ts"], "refactorings": ["extracted hashPassword()", "extracted generateTokens()", "split register and login"], "smells_removed": ["duplication"], "behavior_claimed_unchanged": ["public AuthService API"], "followups": [], "blockers": []}
 
 ## Notes
 - Behavior unchanged — only structure improved
@@ -1725,11 +1730,15 @@ Overall good implementation with proper error handling and tests.
 - Add logging for failed login attempts
 
 ## Test Coverage
-- Good coverage on happy path
-- Missing edge cases: invalid tokens, expired tokens
+- Happy path appears covered.
+- Edge cases not verified: invalid tokens, expired tokens.
 
-## Verdict
-- [x] Approved with minor suggestions
+## Evidence
+The core records the structured verdict linked to the commit/tree; the prose
+above is not evidence.
+
+Core evidence:
+{"verdict": "PASS", "findings": [{"severity": "medium", "description": "Refresh token expiration is 30 days", "file": "src/services/TokenService.ts", "line": 45}, {"severity": "medium", "description": "No input validation on email field", "file": "src/api/auth.ts", "line": 23}], "summary": "PASS with medium findings; address them before production."}
 
 ## Notes
 - Address medium issues before deploying to production
@@ -1755,35 +1764,30 @@ core owns PASS/FAIL and evidence.
 **Typical Response**:
 
 ```
-## Tests Created
-- `tests/services/AuthService.test.ts`
+## Test Artifacts
+- Created: `tests/services/AuthService.test.ts`
   - should register user with valid email
   - should login user with correct credentials
   - should reject invalid email
   - should reject incorrect password
-
-- `tests/services/TokenService.test.ts`
+- Created: `tests/services/TokenService.test.ts`
   - should generate valid access token
   - should generate valid refresh token
   - should validate tokens
   - should reject expired tokens
+- Modified: none
 
-## Test Results
-- Total: 12
-- Passed: 12
-- Failed: 0
-- Skipped: 0
+## Commands Run
+- `uv tool run pytest tests/services/AuthService.test.ts tests/services/TokenService.test.ts -q`
+- Raw output is attached to the task; **PASS/FAIL is decided by the core**, not
+  by this report.
 
-## Coverage
-- Lines: 87%
-- Branches: 79%
+## Handoff
+Agent prose is not evidence. The core runs `task.checks` and records
+PASS/FAIL/BLOCKED/NOT RUN; `NOT RUN` is never a pass.
 
-## Issues
-- None
-
-## Recommendations
-- Add E2E tests for auth flow
-- Test rate limiting scenarios
+Core evidence:
+{"activity": "test", "status": "COMPLETE", "tests_added": ["tests/services/AuthService.test.ts", "tests/services/TokenService.test.ts"], "tests_modified": [], "commands_run": ["uv tool run pytest tests/services/AuthService.test.ts tests/services/TokenService.test.ts -q"], "checks_invoked": ["unit"], "coverage": {"line": null, "branch": null}, "uncovered": ["E2E auth flow", "rate limiting scenarios"], "blockers": []}
 ```
 
 ---
@@ -1814,28 +1818,34 @@ Users randomly receive "Invalid token" errors even with valid tokens.
 2. Make multiple API requests
 3. After 10-15 requests, get "Invalid token" error
 
-## Evidence
-- Error logs show token validation failing
-- Tokens are not expired (checked expiresAt)
-- Issue occurs more frequently under high load
+## Confirmed Findings
+- Error logs show token validation failing.
+- Tokens checked are not expired (`expiresAt` is in the future).
+- Failure frequency correlates with request load.
+- Timestamps agree across nodes, so clock skew is ruled out.
 
-## Hypotheses
-1. **Race condition in token validation** — High likelihood
-2. **Database connection pool exhaustion** — Medium likelihood
-3. **Clock skew between servers** — Low likelihood
+## Suspected Causes
+1. **Database connection pool exhaustion** — Status: suspected. Evidence: logs
+   show pool saturation under load; not yet reproduced in isolation.
+   Confidence: medium.
+2. **Race condition in token validation** — Status: suspected. Evidence:
+   multiple validation queries for the same token; no deterministic
+   reproduction. Confidence: medium.
 
-## Investigation
-- Added logging to token validation
-- Found: Multiple validation queries for same token
-- Database returns stale data under load
+## Investigation Limits
+- The evidence does not yet discriminate between the two suspected causes.
+- Instrumentation was **not** added: `@debugger` is read-only. A write-capable
+  activity must add pool and query timing metrics before this can be confirmed.
+- No root cause is asserted. Status: **UNKNOWN** until a discriminating test runs.
 
-## Root Cause
-Database connection pool is exhausted under high load, causing stale reads.
+## Recommended Fix (proposal)
+- Add the missing instrumentation and re-run the reproduction.
+- If pool exhaustion is confirmed: increase the pool size, add a connection
+  timeout and retry logic.
+- If a race is confirmed: serialize validation for the same token.
 
-## Recommended Fix
-- Increase connection pool size
-- Add connection timeout
-- Implement retry logic for validation queries
+Core evidence:
+{"activity": "diagnosis", "status": "COMPLETE", "root_cause": null, "confidence": "unknown", "evidence": ["validation failures in logs", "tokens not expired", "load correlation", "clock skew ruled out"], "ruled_out": ["clock skew"], "reproduction": ["login", "make 10-15 API requests"], "recommended_fix": {"summary": "instrument pool/query timing, then confirm or reject the suspected causes", "files": [], "regression_test": "reproduce the invalid-token failure under load"}, "blockers": ["read-only boundary: instrumentation requires a write-capable activity"]}
 ```
 
 ---
@@ -1880,13 +1890,12 @@ vulnerabilities, data handling and missing controls.
 - Implement token binding to prevent theft
 - Add logging for failed login attempts
 
-## Compliance
-- [ ] OWASP Top 10 addressed (2 critical issues)
-- [ ] PII protection verified
-- [x] Secrets management secure
+## Evidence
+The core records the structured verdict linked to the commit/tree; this report
+is not evidence of PASS.
 
-## Verdict
-- [ ] Changes required (critical issues found)
+Core evidence:
+{"verdict": "FAIL", "findings": [{"severity": "critical", "description": "A07 XSS: refresh tokens stored in localStorage", "file": "src/services/TokenService.ts", "line": 12}, {"severity": "medium", "description": "A07: no rate limiting on login endpoint", "file": "src/api/auth.ts", "line": 45}, {"severity": "medium", "description": "Password hash cost is 10 (too low)", "file": "src/models/User.ts", "line": 23}], "summary": "FAIL: critical XSS risk. Do not deploy until refresh tokens move to httpOnly cookies."}
 
 ## Notes
 - Do not deploy to production until critical issues are fixed
@@ -2033,22 +2042,30 @@ configuration, with inspection-only shell access.
 - Created: `docker-compose.yml`
 
 ## Infrastructure Updates
-- CI pipeline runs on every push to main
-- Runs lint, type-check, tests
-- Builds Docker image on success
-- Deploys to staging automatically
+- CI pipeline is configured to run on every push to main
+- Runs lint, type-check and tests
+- Builds the Docker image when checks pass
+- Staging deploy is defined but was not executed in this task
 
-## Verification
-- [x] Pipeline runs successfully
-- [x] Docker build passes
-- [x] Deploy tested in staging
+## Validations
+- `actionlint .github/workflows/ci.yml` — exit 0, raw output attached
+- `terraform validate` — exit 0, raw output attached
+- `docker build .` — exit 0, raw output attached
+
+## Not Executed
+- Staging deploy — **NOT RUN**: requires the staging environment, which is not
+  part of this task contract.
+- Production deploy — **NOT RUN**: requires explicit human approval.
 
 ## Documentation
 - Updated: `docs/deployment.md`
 
-## Notes
-- Production deploy requires manual approval
-- Secrets configured via GitHub Secrets
+## Handoff
+The core records checks and gates. This activity never deploys, and this report
+is not evidence of PASS.
+
+Core evidence:
+{"activity": "devops", "status": "COMPLETE", "files_changed": [".github/workflows/ci.yml", "Dockerfile", "docker-compose.yml", "docs/deployment.md"], "validations_run": [{"command": "actionlint .github/workflows/ci.yml", "exit_code": 0}, {"command": "terraform validate", "exit_code": 0}, {"command": "docker build .", "exit_code": 0}], "not_executed": ["staging deploy: environment unavailable", "production deploy: human approval required"], "deployment_performed": false, "blockers": []}
 ```
 
 ---
@@ -2082,20 +2099,18 @@ and reports before/after evidence.
   - Added caching with Redis (5 min TTL)
   - Batched validation queries
 
-## Benchmarks
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Avg Response Time | 150ms | 25ms | 83% |
-| P95 Response Time | 450ms | 75ms | 83% |
-| DB Queries/sec | 100 | 600 | 500% |
+## Measurements
+The benchmark harness produced this activity report. `null` means the value was
+not measured; it is never filled with a guess.
 
-## Verification
-- [x] Tests pass
-- [x] No regressions
-- [x] Performance improved
+Core evidence:
+{"activity": "optimization", "status": "COMPLETE", "metric": "p95_latency_ms", "benchmark": {"command": "<benchmark command>", "environment": "<environment>", "baseline_commit": "<sha>", "runs": 10}, "before": {"median": null, "spread": null}, "after": {"median": null, "spread": null}, "tradeoffs": ["Redis dependency"], "files_modified": ["src/services/TokenService.ts"], "blockers": []}
+
+The core evaluates `task.checks` and owns PASS/FAIL; this activity does not
+declare a performance or gate verdict.
 
 ## Notes
-- Trade-off: Added Redis dependency
+- Trade-off: added a Redis dependency
 - Cache invalidation on token refresh
 ```
 
@@ -2106,6 +2121,11 @@ and reports before/after evidence.
 Skills are **reusable playbooks** that you follow when you want a specific work pattern.
 
 The agent loads a skill automatically when the task matches it. To force one, ask in plain language — no special syntax needed.
+
+The `code-review-checklist` and `security-review` skills are the **single
+source of truth** for `@reviewer` and `@security`. The agents reference them
+instead of duplicating the checklist inline; the core validates their JSON
+evidence.
 
 ### TDD Workflow
 
@@ -2290,6 +2310,8 @@ Creates detailed implementation plan.
 ```
 /plan Create user profile API with CRUD operations
 ```
+
+The plan is output as a JSON block compatible with `juicer decompose`.
 
 #### `/document`
 

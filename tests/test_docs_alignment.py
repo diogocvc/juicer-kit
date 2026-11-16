@@ -383,6 +383,19 @@ def test_guide_uses_capability_selection_not_fixed_pipelines():
     assert "complete development team" not in normalized
     assert "product owner" not in normalized
     assert "each agent is a **specialist**" not in normalized
+    assert "## compatibility notes" in normalized
+    assert "## test artifacts" in normalized
+    assert "## commands run" in normalized
+    assert "## measurements" in normalized
+    assert "## confirmed findings" in normalized
+    assert "## suspected causes" in normalized
+    assert "## validations" in normalized
+    assert "## not executed" in normalized
+    assert "compatible with `juicer decompose`" in normalized
+    assert "single source of truth" in normalized
+    for marker in ("- [x]", "## Verification", "## Test Results",
+                   "## Benchmarks", "Passed: 12"):
+        assert marker not in text, "GUIDE self-attestation reintroduced: %s" % marker
     for line in text.splitlines():
         assert not re.match(r"\s*\d+\.\s+@[a-z]+\s*→", line), (
             "rigid GUIDE pipeline reintroduced: %s" % line
